@@ -1,5 +1,9 @@
 # What's new in Pulse Harness
 
+## 1.42.1 — 2026-11-09
+- **Fix the update log in installed desktop builds.** The packaged app now includes `CHANGELOG.md`, so `/api/changelog` has entries instead of returning an empty list.
+- The last-seen version is read from the shared server config on every launch, so the log survives random localhost ports and appears after an update.
+
 ## 1.42.0 — 2026-11-06
 - **The update log now survives desktop updates.** The last-seen version is stored in the shared server config instead of the old per-port localStorage origin; existing installs also see the full log once.
 - **Editable writing blocks.** Document, text, email, essay and assignment (uppgift) answers open in a distraction-free document with headings, paragraphs, lists, bold and rich Copy for Google Docs, Sheets, Slides, Word and PowerPoint. Ordinary long answers stay in chat.

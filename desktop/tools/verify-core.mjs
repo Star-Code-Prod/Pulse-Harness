@@ -27,6 +27,13 @@ const results = [];
 const ok = (label, pass, extra = "") =>
   results.push((pass ? "PASS  " : "FAIL  ") + label + (extra ? "  " + extra : ""));
 
+/* ------------------------- packaged update log ------------------------- */
+{
+  const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+  ok("the packaged app ships CHANGELOG.md for the update log",
+    Array.isArray(pkg.build?.files) && pkg.build.files.includes("CHANGELOG.md"));
+}
+
 /* ------------------------- credential store ------------------------- */
 ok("mask of empty key is empty", mask("") === "");
 ok("mask shows last four", mask("sk-1234567890abcd") === "••••abcd");
