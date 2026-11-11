@@ -1101,6 +1101,7 @@ body.mode-chat #navProjects{display:none}
 .act-sec:first-child{border-top:0}
 .act-h{padding:11px 14px 4px;font-size:var(--fs-11);letter-spacing:.05em;text-transform:uppercase;color:var(--dim)}
 .act-empty{padding:5px 14px 12px;font-size:var(--fs-12);color:var(--dim)}
+.act-none{padding:12px 14px 16px;line-height:1.5}
 .act-todo{display:flex;align-items:flex-start;gap:8px;padding:5px 14px;font-size:var(--fs-125);color:var(--text2)}
 .act-todo .bx{width:14px;flex:none;display:flex;justify-content:center;padding-top:2px;color:var(--dim)}
 .act-todo.done{color:var(--dim);text-decoration:line-through}
@@ -1708,7 +1709,8 @@ textarea.inp{line-height:1.6;resize:vertical}
   background:var(--chip);border-radius:var(--r-xs);padding:2px 7px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
-.mcp-tool i{font-style:normal;color:var(--dim);font-size:10px}
+.mcp-tool .tn{flex:none;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mcp-tool i{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:normal;color:var(--dim);font-size:10px}
 .mcp-tool.more{color:var(--dim)}
 .mcp-card .btn.dgr{border-color:transparent;color:var(--muted);background:transparent}
 .mcp-card .btn.dgr:hover{color:var(--del-fg);border-color:color-mix(in srgb,var(--del-fg) 40%,var(--border2));background:color-mix(in srgb,var(--del-fg) 8%,transparent)}
@@ -1962,8 +1964,10 @@ body:not(.rail) .sb-nav-row.on svg,body:not(.rail) .sb-nav-row:hover svg{color:v
 /* Quiet monochrome controls. */
 .btn.pri{background:var(--brand);border-color:var(--brand);color:var(--brand-fg)}
 .btn.pri:hover{background:var(--brand-strong);border-color:var(--brand-strong)}
-.kbdh,.kbdh.ready{background:var(--brand);color:var(--brand-fg)}
-.kbdh:hover,.kbdh.ready:hover{background:var(--brand-strong);color:var(--brand-fg)}
+.kbdh,.kbdh.ready{background:transparent;color:var(--text)}
+.kbdh:hover,.kbdh.ready:hover{background:var(--hover);color:var(--text)}
+.cbtn.send{background:transparent;color:var(--text)}
+.cbtn.send:hover{background:var(--hover);color:var(--text)}
 .msg-u .b{background:var(--panel2)}
 body:not(.rail) .sess.on{background:var(--panel)}
 body:not(.rail) .sess.on::before{background:var(--text2)}
@@ -2007,6 +2011,13 @@ body:not(.rail) .sess.on{background:var(--panel2)}
 .bigbox textarea{min-height:40px;font-size:15px}
 .cwrap{padding:12px 12px 8px}
 .crow{margin-top:5px}
+/* Keep the send arrow pinned to the row's right edge; the model label is the
+   one control allowed to truncate when space runs out. */
+.bigbox .crow,.cwrap .crow{flex-wrap:nowrap}
+.cbtn{white-space:nowrap}
+#bigModel,#cModel{min-width:0;flex-shrink:1}
+#bigModel .mono,#cModelName{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#cModel > span:not(#cModelName){flex:none}
 .panes{border-radius:16px;border-color:color-mix(in srgb,var(--border) 65%,transparent);margin:14px 14px 14px 0;background:var(--sidebar)}
 .shead{height:46px;padding:0 20px;border-bottom-color:color-mix(in srgb,var(--border) 50%,transparent)}
 #stream{padding:30px 24px}
@@ -2033,6 +2044,9 @@ body:not(.rail) .sess.on{background:var(--panel2)}
 .perm .ph-kicker{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim)}
 .perm .ph-t b{font-size:13px;font-weight:600;color:var(--text);line-height:1.3}
 .perm .ph-tool{font-family:var(--font-mono);font-size:9.5px;color:var(--dim);border:1px solid var(--border);border-radius:999px;padding:3px 7px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+/* The friendly title already names the tool; the raw id only crowds narrow
+   cards, so it steps aside rather than truncating to noise. */
+@media(max-width:640px){.perm .ph-tool{display:none}}
 .perm-grid{display:flex;flex-direction:column;padding:4px 15px}
 .perm-row{display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px;padding:7px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
 .perm-row:last-child{border-bottom:0}
@@ -3372,21 +3386,43 @@ function renderModelPicker(menu) {
   });
 }
 
+/** Keep a searchable picker inside the viewport: clamp its width, use the
+ *  larger of the space above and below the anchor, and cap its height to that
+ *  space so the header and search field can never be cut off. */
+function fitPickerMenu(menu, anchor) {
+  const r = anchor.getBoundingClientRect();
+  menu.style.minWidth = Math.min(380, innerWidth - 16) + "px";
+  const w = menu.offsetWidth;
+  menu.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + "px";
+  // Never cover the title bar (and its window controls) when opening upward.
+  const chromeTop = document.querySelector(".titlebar") ? 52 : 0;
+  const above = Math.max(0, r.top - chromeTop - 8);
+  const below = Math.max(0, innerHeight - r.bottom - 8);
+  const cap = Math.min(520, innerHeight * 0.7);
+  menu.style.maxHeight = "none";
+  const h = menu.offsetHeight;
+  if (h > above && below > above) {
+    menu.style.top = (r.bottom + 6) + "px";
+    menu.style.bottom = "auto";
+    menu.style.maxHeight = Math.max(96, Math.min(cap, below)) + "px";
+  } else {
+    menu.style.bottom = (innerHeight - r.top + 6) + "px";
+    menu.style.top = "auto";
+    menu.style.maxHeight = Math.max(96, Math.min(cap, above)) + "px";
+  }
+}
+
 function modelPicker(anchor) {
   closeMenus();
   mpQuery = ""; mpSel = 0;
   const menu = document.createElement("div");
   menu.className = "menu mp";
   menu.dataset.menu = "1";
-  const r = anchor.getBoundingClientRect();
   menu.style.position = "fixed";
-  menu.style.left = Math.max(8, Math.min(r.left, innerWidth - 400)) + "px";
-  menu.style.bottom = (innerHeight - r.top + 6) + "px";
-  menu.style.top = "auto";
   menu.style.right = "auto";
   document.body.appendChild(menu);
 
-  const draw = () => renderModelPicker(menu);
+  const draw = () => { renderModelPicker(menu); fitPickerMenu(menu, anchor); };
   draw();
   const focusSearch = () => {
     const s = menu.querySelector("#mpSearch");
@@ -3449,15 +3485,11 @@ async function agentPicker(anchor) {
   const menu = document.createElement("div");
   menu.className = "menu mp";
   menu.dataset.menu = "1";
-  const r = anchor.getBoundingClientRect();
   menu.style.position = "fixed";
-  menu.style.left = Math.max(8, Math.min(r.left, innerWidth - 400)) + "px";
-  menu.style.bottom = (innerHeight - r.top + 6) + "px";
-  menu.style.top = "auto";
   menu.style.right = "auto";
   document.body.appendChild(menu);
 
-  const draw = () => renderAgentPicker(menu);
+  const draw = () => { renderAgentPicker(menu); fitPickerMenu(menu, anchor); };
   draw();
   const focusSearch = () => {
     const s = menu.querySelector("#apSearch");
@@ -3840,13 +3872,13 @@ function renderActPanel() {
           : '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="5.5"/></svg>';
         return `<div class="act-todo ${esc(t.status)}"><span class="bx">${bx}</span><span>${esc(t.text)}</span></div>`;
       }).join("")
-    : '<div class="act-empty">No plan yet.</div>';
+    : "";
   const artHtml = artifacts.length
     ? artifacts.map((a, i) => {
         const label = ACT_ART_LANGS[a.lang] || a.lang;
         return `<button class="act-art" data-art="${i}"><span class="lang">${esc(label)}</span><span class="nm">${esc(a.title || label)}</span></button>`;
       }).join("")
-    : '<div class="act-empty">No artifacts yet.</div>';
+    : "";
   const chgHtml = diffs.length
     ? diffs.map((d, i) => {
         const fields = diffRows(d.before, d.after);
@@ -3854,11 +3886,13 @@ function renderActPanel() {
         const dels = fields.filter((r) => r.t === "del").length;
         return `<button class="act-file" data-chg="${i}"><span class="nm">${esc(d.path)}</span><span class="d"><i>+${adds}</i> <b>−${dels}</b></span></button>`;
       }).join("")
-    : '<div class="act-empty">No changes yet.</div>';
-  $("actBody").innerHTML =
-    `<div class="act-sec" data-sec="progress"><div class="act-h">Progress${todos.length ? " · " + done + "/" + todos.length : ""}</div>${todoHtml}</div>` +
-    `<div class="act-sec" data-sec="artifacts"><div class="act-h">Artifacts</div>${artHtml}</div>` +
-    `<div class="act-sec" data-sec="changes"><div class="act-h">Changes</div>${chgHtml}</div>`;
+    : "";
+  const sections =
+    (todos.length ? `<div class="act-sec" data-sec="progress"><div class="act-h">Progress · ${done}/${todos.length}</div>${todoHtml}</div>` : "") +
+    (artifacts.length ? `<div class="act-sec" data-sec="artifacts"><div class="act-h">Artifacts</div>${artHtml}</div>` : "") +
+    (diffs.length ? `<div class="act-sec" data-sec="changes"><div class="act-h">Changes</div>${chgHtml}</div>` : "");
+  $("actBody").innerHTML = sections ||
+    '<div class="act-empty act-none">Nothing here yet — progress, artifacts and changes appear as Pulse works.</div>';
   $("actBody").querySelectorAll("[data-art]").forEach((b) => b.addEventListener("click", () => {
     toggleActPanel(false);
     artifactView = { i: Number(b.dataset.art), mode: "render" };
@@ -8651,8 +8685,12 @@ function permissionMeta(name, args) {
     for (const [k, v] of Object.entries(a)) {
       if (v == null || v === "") continue;
       if (["content", "body", "old_string", "new_string", "instructions"].includes(k)) continue;
-      if (typeof v === "object") {
-        rows.push([permPretty(k), Array.isArray(v) ? v.length + " items" : "object"]);
+      if (Array.isArray(v)) {
+        if (v.length) rows.push([permPretty(k), v.length + " items"]);
+      } else if (typeof v === "object") {
+        const json = JSON.stringify(v);
+        if (json === "{}") continue;
+        rows.push([permPretty(k), json.length > 300 ? json.slice(0, 300) + "…" : json]);
       } else {
         rows.push([permPretty(k), String(v).slice(0, 300)]);
       }
@@ -8675,7 +8713,7 @@ function permissionHtml(meta, opts = {}) {
     <div class="ph">
       <span class="ph-ic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.8l5 2.2v4.2c0 3-2.1 5.4-5 6-2.9-.6-5-3-5-6V4z"/><path d="M5.7 8l1.5 1.5 3-3"/></svg></span>
       <div class="ph-t"><span class="ph-kicker">${verdict ? "Permission" : "Permission needed"}</span><b>${esc(meta.title)}</b></div>
-      <span class="ph-tool">${esc(meta.tool)}</span>
+      <span class="ph-tool" title="${esc(meta.tool)}">${esc(meta.tool)}</span>
     </div>
     ${rows}${meta.extras}${footer}`;
 }
@@ -9694,6 +9732,10 @@ function settingsAutoRender() {
 function renderSettings() {
   settingsRenderPending = false;
   const host = $("setMain");
+  // Keep the navigation in step with the section however it was opened:
+  // the gear, the command palette, /connect and a nav click all land here.
+  document.querySelectorAll(".set-nav button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.s === settingsSection));
   // The pane body is replaced wholesale; if something inside it holds focus,
   // remember which element it was (by id) and where its caret sat, then put
   // both back after the rebuild, so a background poll never drops the user
@@ -10280,7 +10322,7 @@ function mcpToolChips(tools) {
   if (!tools || !tools.length) return "";
   const shown = tools.slice(0, 8);
   return `<div class="mcp-tools">${shown.map(t =>
-    `<span class="mcp-tool" title="${esc(t.description || "")}">${esc(t.name)}${t.params ? `<i>${esc(t.params)}</i>` : ""}</span>`).join("")}` +
+    `<span class="mcp-tool" title="${esc(t.description || t.name)}"><span class="tn">${esc(t.name)}</span>${t.params ? `<i>${esc(t.params)}</i>` : ""}</span>`).join("")}` +
     (tools.length > shown.length ? `<span class="mcp-tool more">+${tools.length - shown.length} more</span>` : "") + `</div>`;
 }
 
