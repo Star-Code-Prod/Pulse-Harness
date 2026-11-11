@@ -1015,10 +1015,9 @@ body.mode-chat #navProjects{display:none}
 .kbdh.ready:hover{background:var(--accent-h);color:var(--accent-fg)}
 .kbdh .ic-stop{display:none}
 .kbdh.stop{
-  background:var(--panel2);color:var(--del-fg);
-  border:1px solid color-mix(in srgb,var(--del-fg) 45%,var(--border2));
+  background:transparent;color:var(--del-fg);border:0;
 }
-.kbdh.stop:hover{background:var(--panel)}
+.kbdh.stop:hover{background:var(--hover);color:var(--del-fg)}
 .kbdh.stop .ic-send{display:none}
 .kbdh.stop .ic-stop{display:block}
 .crow{display:flex;align-items:center;gap:2px;margin-top:4px;padding:0;flex-wrap:wrap}
@@ -3220,7 +3219,7 @@ function showBootError(err) {
     if (seen && seen !== running) openWhatsNew(false, seen);
     else if (legacyInstall) openWhatsNew(true);
   }, 1500);
-})();
+})().catch((e) => showBootError(e));
 
 function updateChrome() {
   const r = state.root || "";
