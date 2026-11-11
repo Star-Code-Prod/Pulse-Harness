@@ -2113,12 +2113,25 @@ body:not(.rail) .sess.on{background:var(--panel2)}
 .landing .lmark img{width:42px;height:42px}
 .landing h1{font-size:26px;font-weight:500;letter-spacing:-.035em}
 .landing .lsub{font-size:13px}
-.bigbox,.cwrap{border-radius:14px;border-color:var(--border);background:var(--panel);box-shadow:none}
-.bigbox{width:min(760px,100%);padding:12px 14px 8px}
-.bigbox textarea{min-height:40px;font-size:15px}
-.cwrap{padding:12px 14px 10px}
-.cbox textarea{min-height:42px;padding:2px 2px 0}
-.crow{margin-top:8px;gap:4px}
+.bigbox,.cwrap{background:transparent;border:0;box-shadow:none;padding:0;border-radius:0}
+.bigbox:focus-within,.cwrap:focus-within{border-color:transparent;box-shadow:none}
+.cbox{background:var(--panel);border:1px solid transparent;border-radius:16px;padding:12px 14px}
+.cbox:focus-within{border-color:var(--border2)}
+.cwrap.dragover .cbox{border-color:var(--brand)}
+/* The bar is just +, the prompt and the send control; the other controls
+   sit right-aligned underneath, like the desktop app. */
+#cProj,#cAgent,#bigProj,#bigAgent{display:none}
+#cModel{order:1}#cMode{order:2}#cRing{order:3}
+#bigModel{order:1}#bigMode{order:2}
+#cModelName,#bigModelName{font-family:var(--font-sans);font-weight:500;color:var(--text2)}
+#kbdHint[hidden],#bigSend[hidden]{display:none}
+.cbox .cbtn.ico{width:28px;height:28px;color:var(--text2)}
+.cbox .cbtn.ico svg{width:18px;height:18px}
+.bigbox{width:min(760px,100%);padding:0}
+.bigbox textarea{min-height:28px;font-size:15px}
+.cwrap{padding:0}
+.cbox textarea{min-height:28px;padding:3px 2px}
+.crow{margin-top:8px;gap:4px;padding:0 4px}
 /* Keep the send arrow pinned to the row's right edge; the model label is the
    one control allowed to truncate when space runs out. */
 .bigbox .crow,.cwrap .crow{flex-wrap:nowrap}
@@ -2484,8 +2497,8 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
           <button class="cbtn ico" id="bigPlus" type="button" title="Attach a file or run a shell command" aria-label="More actions">
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg>
           </button>
-          <textarea id="bigInput" rows="2" placeholder="Type / for commands" aria-label="Message Pulse Harness"></textarea>
-          <button class="cbtn send" id="bigSend" title="Send" aria-label="Send message">
+          <textarea id="bigInput" rows="1" placeholder="Type / for commands" aria-label="Message Pulse Harness"></textarea>
+          <button class="cbtn send" id="bigSend" title="Send" aria-label="Send message" hidden>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5V2.8M3.2 7.6L8 2.8l4.8 4.8"/></svg>
           </button>
         </div>
@@ -2554,7 +2567,7 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg>
         </button>
         <textarea id="input" rows="1" placeholder="Type / for commands" aria-label="Message Pulse Harness"></textarea>
-        <button class="kbdh" id="kbdHint" type="button" title="Send" aria-label="Send message">
+        <button class="kbdh" id="kbdHint" type="button" title="Send" aria-label="Send message" hidden>
           <svg class="ic-send" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5V2.8M3.2 7.6L8 2.8l4.8 4.8"/></svg>
           <svg class="ic-stop" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor"/></svg>
         </button>
@@ -9577,17 +9590,26 @@ function acceptSlash() {
 }
 
 /* ============================ INPUT ============================ */
+function syncComposerSend() {
+  const typed = $("input") ? $("input").value.trim() !== "" : false;
+  const streaming = typeof isStreaming === "function" && isStreaming(sessionId);
+  if ($("kbdHint")) {
+    $("kbdHint").classList.toggle("ready", typed);
+    $("kbdHint").hidden = !typed && !streaming;
+  }
+  if ($("bigSend")) $("bigSend").hidden = !($("bigInput") && $("bigInput").value.trim());
+}
 function autoGrow(el) {
   el.style.height = "auto";
   el.style.height = Math.min(el.scrollHeight, 200) + "px";
-  // The send button reads the composer's emptiness (ghost when idle).
-  if (el === $("input")) $("kbdHint").classList.toggle("ready", el.value.trim() !== "");
+  if (el === $("input") || el === $("bigInput")) syncComposerSend();
 }
 $("input").addEventListener("input", () => {
   autoGrow($("input"));
   const v = $("input").value;
   if (v.startsWith("/") && !v.includes(" ")) showSlash(v); else hideSlash();
 });
+$("bigInput").addEventListener("input", () => autoGrow($("bigInput")));
 $("input").addEventListener("keydown", e => {
   if ($("slashMenu").style.display === "block") {
     if (e.key === "ArrowDown") { e.preventDefault(); return moveSlash(1); }
@@ -9698,6 +9720,8 @@ $("cPlus").addEventListener("click", e => {
   openMenu($("cPlus"), [
     { label: "Side chat", run: () => openSideChat() },
     { label: "Attach file", run: attachPick },
+    { label: "Working folder", run: openProjects },
+    { label: "Agent: " + (state.agent || "No agent"), run: () => agentPicker($("cPlus")) },
     { label: "Run shell command", k: "!", run: () => { $("input").value = "! "; $("input").focus(); } },
     { label: "Open a pane", run: () => paneMenu($("cPlus")) },
     { sep: true },
@@ -9709,6 +9733,8 @@ $("bigPlus").addEventListener("click", e => {
   e.stopPropagation();
   openMenu($("bigPlus"), [
     { label: "Attach file", run: attachPick },
+    { label: "Working folder", run: openProjects },
+    { label: "Agent: " + (state.agent || "No agent"), run: () => agentPicker($("bigPlus")) },
     { label: "Run shell command", k: "!", run: () => { $("bigInput").value = "! "; $("bigInput").focus(); } },
   ]);
 });
@@ -9783,6 +9809,7 @@ function setWorking(on) {
     // The two SVG icons live in the markup; setting textContent here used to
     // destroy them and leave a ⏎/■ glyph. The .stop class swaps send/stop.
     btn.classList.toggle("stop", !!on);
+    btn.hidden = !on && !($("input") && $("input").value.trim());
     btn.title = on ? "Stop" : "Send";
     btn.setAttribute("aria-label", on ? "Stop the response" : "Send message");
   }

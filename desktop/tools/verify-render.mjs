@@ -705,6 +705,15 @@ ok("the row under the prompt carries project, permission, agent and model",
 ok("the landing prompt box matches the session bar",
   html.indexOf('id="bigPlus"') < html.indexOf('id="bigInput"') &&
   html.indexOf('id="bigInput"') < html.indexOf('id="bigSend"'));
+ok("the prompt surface wraps only the input row",
+  html.includes(".bigbox,.cwrap{background:transparent") &&
+  html.includes(".cbox{background:var(--panel)"));
+ok("the controls row is right-aligned as model, permission, ring",
+  html.includes("#cModel{order:1}#cMode{order:2}#cRing{order:3}") &&
+  html.includes("#cProj,#cAgent,#bigProj,#bigAgent{display:none}"));
+ok("the send appears only when there is something to send",
+  html.includes('id="kbdHint" type="button" title="Send" aria-label="Send message" hidden') &&
+  js.includes("function syncComposerSend(") && js.includes("hidden = !typed && !streaming"));
 ok("the send icon survives the streaming state",
   js.includes('btn.classList.toggle("stop"') && !js.includes('btn.textContent = on ? "■"'));
 ok("the stop control is borderless and keeps its larger rounded square",
