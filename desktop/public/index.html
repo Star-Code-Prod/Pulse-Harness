@@ -3819,6 +3819,9 @@ function applyActivePane() {
 
 function setActivePane(id) {
   if (!paneOpen.has(id)) return;
+  // Switching away from a fullscreen preview leaves fullscreen, not a hidden
+  // row behind the overlay.
+  if (document.body.classList.contains("preview-full") && id !== "preview") previewFull(false);
   activePane = id;
   applyActivePane();
   renderPaneTabs();
