@@ -100,6 +100,16 @@ body{
 }
 ::selection{background:color-mix(in srgb,var(--brand) 32%,transparent);color:var(--text)}
 button{font-family:inherit;cursor:pointer;color:inherit;background:none;border:0;padding:0}
+button:disabled{cursor:default}
+a,summary{cursor:pointer}
+/* One quiet hover language: anything clickable that has no more specific
+   state gets the same faint overlay and transition the desktop app uses. */
+:where(button,a,[role="button"],summary){
+  transition:background-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease);
+}
+@media(hover:hover){
+  :where(button:not(:disabled),a,[role="button"],summary):hover{background-color:var(--hover)}
+}
 input,textarea,select{font-family:inherit}
 [hidden]{display:none!important}
 :focus{outline:none}
@@ -439,7 +449,7 @@ body.mode-chat #navProjects{display:none}
   width:26px;height:26px;border-radius:var(--r-xs);display:flex;align-items:center;justify-content:center;color:var(--muted);
   transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease);
 }
-.hbtn:hover{background:var(--panel);color:var(--text)}
+.hbtn:hover{background:var(--hover);color:var(--text)}
 .hbtn.on{background:var(--chip-on);color:var(--text)}
 
 /* ============================ CONVERSATION ============================ */
@@ -1026,7 +1036,7 @@ body.mode-chat #navProjects{display:none}
   font-size:var(--fs-12);color:var(--muted);
   transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease);
 }
-.cbtn:hover{background:var(--panel);color:var(--text)}
+.cbtn:hover{background:var(--hover);color:var(--text)}
 .cbtn.ico{width:24px;height:24px;padding:0;justify-content:center;color:var(--dim)}
 .cbtn.ico:hover{color:var(--text)}
 .cbtn.ico svg{width:15px;height:15px}
@@ -2058,7 +2068,7 @@ body:not(.rail) .sb-nav-row.on svg,body:not(.rail) .sb-nav-row:hover svg{color:v
 .kbdh:hover,.kbdh.ready:hover{background:var(--hover);color:var(--text)}
 .kbdh.stop,.kbdh.ready.stop{background:transparent;color:var(--text);border:0}
 .kbdh.stop:hover,.kbdh.ready.stop:hover{background:var(--hover);color:var(--text)}
-.kbdh.stop .ic-stop{width:11px;height:11px}
+.kbdh.stop .ic-stop{width:16px;height:16px}
 .cbtn.send{background:transparent;color:var(--text);margin-left:5px}
 .cbtn.send:hover{background:var(--hover);color:var(--text)}
 #kbdHint{margin-left:4px}
@@ -2440,13 +2450,6 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 5.4h8M2.4 9.8h4.6"/><path d="M12.8 4.6v6.8M12.8 11.4l-1.9-1.9M12.8 11.4l1.9-1.9"/></svg>
       </button>
     </div>
-    <div class="sb-search">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
-      <input id="sessSearch" type="text" placeholder="Search sessions" aria-label="Search sessions" autocomplete="off" spellcheck="false">
-      <button class="clr" id="sessClear" title="Clear search" aria-label="Clear session search" hidden>
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
-      </button>
-    </div>
     <div class="sessions" id="sessions"></div>
     <div class="sb-sec pf-sec">
       <button class="pf-toggle" id="btnTreeToggle" aria-expanded="false" aria-label="Show project files" title="Show project files">
@@ -2553,7 +2556,7 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
         <textarea id="input" rows="1" placeholder="Type / for commands" aria-label="Message Pulse Harness"></textarea>
         <button class="kbdh" id="kbdHint" type="button" title="Send" aria-label="Send message">
           <svg class="ic-send" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5V2.8M3.2 7.6L8 2.8l4.8 4.8"/></svg>
-          <svg class="ic-stop" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="2" fill="currentColor"/></svg>
+          <svg class="ic-stop" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor"/></svg>
         </button>
       </div>
       <div class="crow">
@@ -4389,28 +4392,6 @@ document.querySelectorAll("[data-win]").forEach(b => b.addEventListener("click",
   if (bridge && bridge.window) bridge.window(b.dataset.win);
 }));
 $("sbScrim").addEventListener("click", () => toggleSidebar(false));
-/* Focus the sidebar's search box (the titlebar used to carry a button for
-   this; the sidebar's own field and Cmd+K are the ways now). */
-function focusSessionSearch() {
-  if (getComputedStyle($("sidebar")).display === "none") toggleSidebar(true);
-  const s = $("sessSearch");
-  if (s) { s.focus(); s.select(); }
-}
-$("sessSearch").addEventListener("input", (e) => {
-  sessQuery = e.target.value;
-  $("sessClear").hidden = !sessQuery;
-  renderSessions();
-});
-$("sessSearch").addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { e.stopPropagation(); $("sessClear").click(); }
-});
-$("sessClear").addEventListener("click", () => {
-  sessQuery = "";
-  $("sessSearch").value = "";
-  $("sessClear").hidden = true;
-  renderSessions();
-  $("sessSearch").focus();
-});
 $("prClose").addEventListener("click", () => $("prbar").style.display = "none");
 
 /* ============================ TERMINAL ============================ */
@@ -9868,7 +9849,6 @@ let cmdItems = [], cmdIndex = 0;
 function cmdActions(includeFiles = false) {
   const items = [
     { id: "new", label: "New session", hint: "⌘N", icon: "new", run: () => newSession() },
-    { id: "search", label: "Search sessions", icon: "search", run: () => focusSessionSearch() },
     { id: "projects", label: "Open Projects", icon: "projects", run: () => openProjects() },
     { id: "routines", label: "Open Routines", icon: "routines", run: () => openRoutines() },
     { id: "artifacts", label: "Open Artifacts", icon: "artifacts", run: () => $("btnArtifacts").click() },
@@ -12035,10 +12015,7 @@ $("navNew").addEventListener("click", () => {
   if (innerWidth <= 820) toggleSidebar(false);
   newSession();
 });
-$("navSearch").addEventListener("click", () => {
-  setSidebarNav("navSearch");
-  focusSessionSearch();
-});
+$("navSearch").addEventListener("click", () => openCmd());
 $("navProjects").addEventListener("click", openProjects);
 $("navRoutines").addEventListener("click", openRoutines);
 $("btnArtifacts").addEventListener("click", () => {

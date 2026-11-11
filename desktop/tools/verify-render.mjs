@@ -707,9 +707,15 @@ ok("the landing prompt box matches the session bar",
   html.indexOf('id="bigInput"') < html.indexOf('id="bigSend"'));
 ok("the send icon survives the streaming state",
   js.includes('btn.classList.toggle("stop"') && !js.includes('btn.textContent = on ? "■"'));
-ok("the stop control is borderless and keeps its square icon",
+ok("the stop control is borderless and keeps its larger rounded square",
   html.includes(".kbdh.stop,.kbdh.ready.stop{background:transparent") &&
-  html.includes(".kbdh.stop .ic-stop{width:11px;height:11px}"));
+  html.includes(".kbdh.stop .ic-stop{width:16px;height:16px}") &&
+  html.includes('width="10" height="10" rx="3"'));
+ok("the sidebar Search button opens the command palette",
+  js.includes('$("navSearch").addEventListener("click", () => openCmd())') &&
+  !html.includes('id="sessSearch"'));
+ok("clickable elements share a quiet custom hover",
+  html.includes(':where(button:not(:disabled),a,[role="button"],summary):hover{background-color:var(--hover)}'));
 ok("the + opens the composer menu and the arrow is gone",
   !html.includes('id="cMore"') && js.includes('$("cPlus").addEventListener("click"') &&
   js.includes('{ label: "Side chat"') && js.includes('{ label: "Attach file"') &&
