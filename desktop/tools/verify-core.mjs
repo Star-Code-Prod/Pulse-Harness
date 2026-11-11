@@ -491,6 +491,9 @@ ok("chat prompt introduces Pulse", chat.includes("You are Pulse"));
 ok("the chat prompt teaches its tools and the built-in skills",
   chat.includes("search_knowledge") && chat.includes("65 built-in packs") &&
   chat.includes("Load the matching skill first"));
+ok("chat can create routines from a plain request",
+  chat.includes("schedule: create a routine") && chat.includes("Routines page") &&
+  chat.includes('action:"add"'));
 ok("Chat mode names its exact tool boundary and never advertises Office tools",
   chat.includes("Chat mode tool boundary") && chat.includes("ONLY tools available") &&
   chat.includes("switch to Code mode") && !chat.includes("office_read") &&
@@ -579,6 +582,9 @@ ok("motion scenes carry a kept name so revisions version together",
 ok("size guidance sets the expected scale",
   p1.includes("200-600 lines") && p1.includes("8-14 slides") && p1.includes("2-6 frames"));
 ok("the prompt stays within a sane budget", p1.length < 60000, String(p1.length));
+ok("the code prompt teaches routine creation from a plain request",
+  p1.includes('call schedule with action:"add"') && p1.includes("Routines page") &&
+  p1.includes("allowTools:true"));
 ok("doctrine names the four formats", ["html", "svg", "md", "motion"].every((f) => new RegExp("^- " + f + " - ", "m").test(p1)) && p1.includes("```artifact html") && p1.includes("```artifact motion"));
 
 resetSystemPromptCache();

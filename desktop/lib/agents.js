@@ -208,6 +208,57 @@ export function listAgents(root) {
   return listAgentsWithProblems(root).agents;
 }
 
+/** Where an agent file of a scope lives. */
+export function agentDir(root, scope = "project") {
+  return scope === "user"
+    ? userAgentsDir()
+    : path.join(String(root ?? "."), ".star-code", "agents");
+}
+
+const oneLine = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
+
+/**
+ * Write one agent as the same markdown a user would hand-edit. `tools` may be
+ * a comma string or an array; empty means the read-only default, "*" means no
+ * restriction. Returns { ok, file, source } or { ok:false, error }.
+ */
+export function saveAgent(root, { name, description = "", tools = "", model = "", promptText = "", scope = "project" } = {}) {
+  const clean = sanitizeAgentName(name);
+  if (!clean) return { ok: false, error: 'agent name must use letters, digits and dashes' };
+  const source = scope === "user" ? "user" : "project";
+  const dir = agentDir(root, source);
+  const file = path.join(dir, clean + ".md");
+  const toolsValue = Array.isArray(tools)
+    ? tools.map(oneLine).filter(Boolean).join(", ")
+    : oneLine(tools);
+  const lines = ["---", "name: " + clean, "description: " + oneLine(description)];
+  if (toolsValue) lines.push("tools: " + toolsValue);
+  const modelValue = oneLine(model);
+  if (modelValue) lines.push("model: " + modelValue);
+  lines.push("---", "", String(promptText ?? "").replace(/\r\n?/g, "\n").trim(), "");
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(file, lines.join("\n"), "utf8");
+    return { ok: true, file, source };
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : "could not write the agent file" };
+  }
+}
+
+/** Remove a custom agent file. The built-in explorer has no file. */
+export function deleteAgent(root, { name, scope = "project" } = {}) {
+  const clean = sanitizeAgentName(name);
+  if (!clean) return { ok: false, error: "unknown agent" };
+  const source = scope === "user" ? "user" : "project";
+  const file = path.join(agentDir(root, source), clean + ".md");
+  try {
+    fs.unlinkSync(file);
+    return { ok: true, file, source };
+  } catch (e) {
+    return { ok: false, error: e && e.code === "ENOENT" ? "agent file not found" : (e.message || "could not delete") };
+  }
+}
+
 /* Plugin-registered agents (lib/plugins.js): in-memory, beside the files.
    A file (or the builtin explorer) always wins a name clash. */
 const pluginAgents = [];

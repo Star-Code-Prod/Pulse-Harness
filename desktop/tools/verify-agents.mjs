@@ -18,7 +18,7 @@ process.env.STAR_CODE_AGENTS_DIR = path.join(tmp, "user-agents");
 
 const {
   listAgents, listAgentsWithProblems, getAgent, sanitizeAgentName, userAgentsDir,
-  BUILTIN_EXPLORER, AGENT_DEFAULT_TOOLS,
+  saveAgent, deleteAgent, BUILTIN_EXPLORER, AGENT_DEFAULT_TOOLS,
 } = await import(pathToFileURL(path.resolve("lib/agents.js")).href);
 const {
   createToolRunner, toolSchemasOpenAI, toolSpecsFor, TOOL_SPECS,
@@ -225,6 +225,29 @@ let noneError = "";
 try { await bare.run("task", { instructions: "x", agent: "ghost" }); } catch (e) { noneError = e.message; }
 process.env.STAR_CODE_AGENTS_DIR = savedUserDir;
 ok("with no custom agents the error says so", /no custom agents/i.test(noneError), noneError);
+
+/* --------------------------- editing prompts --------------------------- */
+// The Settings editor writes the same markdown a user would hand-edit.
+const saved = saveAgent(projectRoot, {
+  name: "Saved Agent",
+  description: "Writes a prompt",
+  tools: "read_file, list_dir",
+  model: "deepseek/deepseek-chat",
+  promptText: "You are saved.\nBe brief.",
+  scope: "project",
+});
+ok("saveAgent writes a project agent", saved.ok === true && fs.existsSync(saved.file), saved.error || saved.file);
+const savedParsed = getAgent(projectRoot, "saved-agent");
+ok("the saved prompt and fields round-trip",
+  savedParsed && savedParsed.promptText.includes("You are saved.") &&
+  savedParsed.model === "deepseek/deepseek-chat" &&
+  savedParsed.tools.includes("list_dir") && savedParsed.source === "project",
+  JSON.stringify(savedParsed));
+const savedUserAgent = saveAgent(projectRoot, { name: "user-saved", promptText: "User prompt.", scope: "user" });
+ok("saveAgent writes a user agent", savedUserAgent.ok === true && getAgent(projectRoot, "user-saved").source === "user");
+ok("deleteAgent removes the file",
+  deleteAgent(projectRoot, { name: "saved-agent" }).ok === true && !fs.existsSync(saved.file));
+ok("deleteAgent reports a missing agent", deleteAgent(projectRoot, { name: "saved-agent" }).ok === false);
 
 /* -------------------------------- report -------------------------------- */
 fs.rmSync(tmp, { recursive: true, force: true });

@@ -23,6 +23,7 @@ const { mcpToolName, readMcpConfig, writeUserMcpServers, createMcpManager, compa
   parseCommandLine, parseMcpJson, normalizeServer, resolveExecutable, spawnSpec, readUserMcpServers,
   writeMcpConfigText } =
   await import(pathToFileURL(path.resolve("lib/mcp.js")).href);
+const { systemPrompt, chatSystemPrompt } = await import(pathToFileURL(path.resolve("lib/agent.js")).href);
 
 const STUB = path.resolve("tools/mcp-stub-server.mjs");
 const stubCmd = [process.execPath, STUB];
@@ -74,6 +75,18 @@ await withManager({ stub: { command: stubCmd, environment: {} } }, async (mgr) =
     JSON.stringify(mgr.toolList().find((t) => t.name === "mcp__stub__echo")));
   ok("the listing carries the parameters too",
     (mgr.list()[0].tools.find((t) => t.name === "echo") || {}).params === "text:string, mode?:enum");
+  ok("the server title and handshake guidance are kept",
+    l[0].title === "Stub Server" && l[0].instructions.includes("Use echo first"),
+    JSON.stringify([l[0].title, l[0].instructions]));
+  const echoTool = l[0].tools.find((t) => t.name === "echo") || {};
+  const explodeTool = l[0].tools.find((t) => t.name === "explode") || {};
+  ok("tool title and annotation hints survive",
+    echoTool.title === "Echo Tool" && echoTool.readOnly === true && explodeTool.destructive === true,
+    JSON.stringify([echoTool.title, echoTool.readOnly, explodeTool.destructive]));
+  const tl = mgr.toolList().find((t) => t.name === "mcp__stub__echo") || {};
+  ok("the prompt-facing list marks MCP tools and their server",
+    tl.kind === "mcp" && tl.server === "stub" && tl.serverTitle === "Stub Server" && tl.readOnly === true,
+    JSON.stringify({ kind: tl.kind, server: tl.server, serverTitle: tl.serverTitle, readOnly: tl.readOnly }));
   ok("has() knows the namespaced names", mgr.has("mcp__stub__echo") && !mgr.has("mcp__stub__nope"));
   const out = await mgr.call("mcp__stub__echo", { text: "hi" });
   ok("a tool call returns text", out === "echo:hi", out);
@@ -87,6 +100,15 @@ await withManager({ stub: { command: stubCmd, environment: {} } }, async (mgr) =
     shotText.includes("[image: image/png,") && shotText.length < 500 && !shotText.includes("iVBOR"), shotText.slice(0, 90));
   const t = await mgr.test("stub");
   ok("test reports tools", t.ok === true && t.tools.some((x) => x.name === "echo"));
+  const prompt = systemPrompt(root, "code", mgr.toolList());
+  ok("the code prompt groups tools under the server and adds its guidance",
+    prompt.includes("[Stub Server]") && prompt.includes("Server guidance: Use echo first"),
+    prompt.slice(prompt.indexOf("[Stub Server]"), prompt.indexOf("[Stub Server]") + 120));
+  ok("the prompt marks read-only and destructive tools",
+    prompt.includes("[read-only]") && prompt.includes("[can modify data]"));
+  const chat = chatSystemPrompt(mgr.toolList());
+  ok("Chat gets the same MCP block",
+    chat.includes("mcp__stub__echo") && chat.includes("[Stub Server]"));
 });
 
 // Unknown/disabled names are clean errors.
@@ -170,6 +192,39 @@ await withManager({ "two-part": { command: stubCmd, environment: {} } }, async (
   ok("the slugged name resolves back to the server", mgr.has("mcp__two_part__echo"));
   const out = await mgr.call("mcp__two_part__echo", { text: "slug" });
   ok("a slugged call runs the tool", out === "echo:slug", out);
+});
+
+/* --------------------------- protocol errors --------------------------- */
+// A JSON-RPC error is an answer, not a dead pipe: it names the server and code
+// and must not reconnect and run the tool a second time.
+{
+  const countFile = path.join(tmp, "bad-calls.txt");
+  await withManager({ stub: { command: stubCmd, environment: { MCP_STUB_ERROR: "1", MCP_STUB_COUNT_FILE: countFile } } }, async (mgr) => {
+    let msg = "";
+    try { await mgr.call("mcp__stub__bad", {}); } catch (e) { msg = e.message; }
+    ok("a JSON-RPC error names the server and its code",
+      msg.includes('Server "stub"') && msg.includes("-32602") && msg.includes("bad argument"), msg);
+    const calls = fs.existsSync(countFile) ? fs.readFileSync(countFile, "utf8").trim().split("\n").filter(Boolean).length : 0;
+    ok("a JSON-RPC error is not retried", calls === 1, String(calls));
+  });
+}
+
+/* --------------------------- wire names --------------------------- */
+// The advertised name is slugged, but tools/call must send the server's own
+// name. Two names that slug alike must still advertise distinct tools.
+await withManager({ stub: { command: stubCmd, environment: { MCP_STUB_WIRE: "1" } } }, async (mgr) => {
+  const names = mgr.toolList().map((t) => t.name);
+  ok("a non-slug tool is advertised by its slug", names.includes("mcp__stub__echo_me"), JSON.stringify(names));
+  ok("colliding slugs get distinct names",
+    names.includes("mcp__stub__a_b") && names.includes("mcp__stub__a_b_2"), JSON.stringify(names));
+  ok("the listing keeps the wire name",
+    (mgr.list()[0].tools.find((t) => t.name === "echo_me") || {}).wireName === "echo me");
+  const spaced = await mgr.call("mcp__stub__echo_me", {});
+  ok("tools/call sends the server's exact name", spaced === "echo me:done", spaced);
+  const first = await mgr.call("mcp__stub__a_b", {});
+  const second = await mgr.call("mcp__stub__a_b_2", {});
+  ok("each colliding tool calls its own wire name",
+    first === "a b:done" && second === "a-b:done", JSON.stringify([first, second]));
 });
 
 /* ------------------------ bridge availability ------------------------ */

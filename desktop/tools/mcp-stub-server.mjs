@@ -19,11 +19,26 @@ const send = (obj) => {
 };
 
 const TOOLS = [
-  { name: "echo", description: "Echo text back", inputSchema: { type: "object", properties: { text: { type: "string" }, mode: { type: "string", enum: ["plain", "loud"] } }, required: ["text"] } },
+  { name: "echo", title: "Echo Tool", description: "Echo text back", annotations: { readOnlyHint: true }, inputSchema: { type: "object", properties: { text: { type: "string" }, mode: { type: "string", enum: ["plain", "loud"] } }, required: ["text"] } },
   { name: "slow", description: "A tool that may never answer", inputSchema: { type: "object", properties: {} } },
-  { name: "screenshot", description: "Return a tiny image (like a viewport grab)", inputSchema: { type: "object", properties: {} } },
-  { name: "explode", description: "A tool that reports an error", inputSchema: { type: "object", properties: {} } },
+  { name: "screenshot", description: "Return a tiny image (like a viewport grab)", annotations: { readOnlyHint: true }, inputSchema: { type: "object", properties: {} } },
+  { name: "explode", title: "Explode Tool", description: "A tool that reports an error", annotations: { destructiveHint: true }, inputSchema: { type: "object", properties: {} } },
 ];
+
+// A tool whose call fails at the protocol level (JSON-RPC error, not isError).
+if (process.env.MCP_STUB_ERROR === "1") {
+  TOOLS.push({ name: "bad", description: "Returns a JSON-RPC error", inputSchema: { type: "object", properties: {} } });
+}
+
+// Names that are not slugs, plus two that slug alike: tools/call must carry
+// the server's exact names and the advertised names must stay unique.
+if (process.env.MCP_STUB_WIRE === "1") {
+  TOOLS.push(
+    { name: "echo me", description: "A name with a space", inputSchema: { type: "object", properties: {} } },
+    { name: "a b", description: "First colliding name", inputSchema: { type: "object", properties: {} } },
+    { name: "a-b", description: "Second colliding name", inputSchema: { type: "object", properties: {} } },
+  );
+}
 
 // A provider caps tool names at 64 characters; this one exercises the hash.
 if (process.env.MCP_STUB_LONG === "1") {
@@ -43,7 +58,12 @@ rl.on("line", (line) => {
   try { msg = JSON.parse(line); } catch { return; }
   if (noise) process.stdout.write("this line is not json\n");
   if (msg.method === "initialize") {
-    send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "mcp-stub", version: "1" } } });
+    send({ jsonrpc: "2.0", id: msg.id, result: {
+      protocolVersion: "2025-06-18",
+      capabilities: { tools: { listChanged: true } },
+      serverInfo: { name: "mcp-stub", title: "Stub Server", version: "1" },
+      instructions: "Use echo first; it is safe to retry.",
+    } });
     if (process.env.MCP_STUB_CRASH === "after-init") setTimeout(() => process.exit(3), 150);
     return;
   }
@@ -64,6 +84,11 @@ rl.on("line", (line) => {
     const name = msg.params && msg.params.name;
     if (name === silent) return; // never answers
     const args = (msg.params && msg.params.arguments) || {};
+    if (name === "bad") {
+      if (countFile) { try { fs.appendFileSync(countFile, "call\n"); } catch { /* test detail */ } }
+      send({ jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "bad argument", data: { field: "text" } } });
+      return;
+    }
     if (name === "explode") {
       if (countFile) { try { fs.appendFileSync(countFile, "call\n"); } catch { /* test detail */ } }
       send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: "exploded: " + String(args.reason || "") }], isError: true } });

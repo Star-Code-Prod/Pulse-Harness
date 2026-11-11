@@ -4,6 +4,7 @@
 import fs from "node:fs";
 
 const html = fs.readFileSync("public/index.html", "utf8");
+const agentJs = fs.readFileSync("lib/agent.js", "utf8");
 const start = html.lastIndexOf("<script>") + 8;
 const end = html.lastIndexOf("</script>");
 const js = html.slice(start, end);
@@ -266,7 +267,8 @@ ok("sessions stream in the background while you switch",
   js.includes("let liveTurns = new Map()") && js.includes("const isStreaming = (id)") &&
   !fnBody("async function switchSession(").includes("Wait for the current reply"));
 ok("a live turn replays into the transcript on switch",
-  fnBody("async function switchSession(").includes("for (const e of live.events) handle(e)"));
+  fnBody("async function switchSession(").includes("for (const e of live.events)") &&
+  fnBody("async function switchSession(").includes("handle(e)"));
 ok("superseded readers stop cleanly", fnBody("async function sendToAgent(").includes("liveTurns.get(sid) !== live"));
 ok("the update log uses the persisted last-seen version",
   js.includes("function openWhatsNew(") && js.includes("function versionNewer(") &&
@@ -333,8 +335,9 @@ ok("a cut-off turn continues when its session opens",
   js.includes("message: resume ? undefined : message"));
 ok("the activity word tells the truth about reasoning models",
   js.includes("writing the reply") && fnBody("async function sendToAgent(").includes("reasoner"));
-ok("effort lives in the model dropdown",
-  js.includes('id="mpEffort"') && js.includes("Reasoning effort: ") && /\.mp-eff\{/.test(html.replace(/\s+/g, "")));
+ok("effort has its own control",
+  html.includes('id="cEffort"') && html.includes('id="bigEffort"') &&
+  js.includes("function effortPicker(") && !js.includes('id="mpEffort"'));
 ok("the motion scrub is styled, not the platform gray rail",
   /\.mo-scrub::-webkit-slider-thumb\{/.test(html.replace(/\s+/g, "")) &&
   js.includes('--p') && html.includes("linear-gradient(90deg,var(--accent) var(--p"));
@@ -538,16 +541,44 @@ ok("text files can be edited and saved from the preview",
   /\.fedit\{/.test(html.replace(/\s+/g, "")));
 ok("fullscreen sits below the titlebar strip",
   /body\.preview-full \.panes\{[^}]*inset:52px 0 0 0/.test(html.replace(/\s+/g, " ")) &&
-  /body\.preview-full \.pane-row\[data-pane="preview"\]\{[^}]*inset:0 0 0 0/.test(html.replace(/\s+/g, " ")));
+  /body\.preview-full \.pane-row\[data-pane="preview"\]\{[^}]*position:relative/.test(html.replace(/\s+/g, " ")));
+ok("the right rail is one tabbed pane",
+  /\.pane-row\.open\{display:none\}/.test(html.replace(/\s+/g, "")) &&
+  /#paneBody \.pane-row\.open\.active[^{]*\{display:flex/.test(html.replace(/\s+/g, " ")) &&
+  js.includes('class="ptab') && js.includes("[data-tab]") &&
+  html.replace(/\s+/g, "").includes(".pane-sub{display:none}"));
 ok("the process header counts the round",
   js.includes("function procCount(") && js.includes('" thought" + (t === 1 ? "" : "s")') &&
   js.includes('" tool call" + (n === 1 ? "" : "s")'));
-ok("the process header reads Analyzing/Worked for the round duration",
-  js.includes('"Analyzing for "') && js.includes('"Working for "') &&
-  js.includes('"Worked for "') && js.includes("fmtDur(total)"));
+ok("the process header reads Thought for/Used the round duration",
+  js.includes('"Thought for "') && js.includes('"Used "') &&
+  js.includes('"Thinking… "') && js.includes("fmtDur(total)"));
+ok("a round is folded by default and hides when empty",
+  js.includes('aria-expanded="false"') && js.includes("if (!state.autoCollapseThinking)") &&
+  html.includes(".proc.empty{display:none}"));
+ok("reasoning prose needs no second fold",
+  html.includes(".pitem.thought .prow{display:none}") &&
+  html.includes(".pitem.thought .pdet{display:block"));
+ok("tool arg previews summarize arrays and objects",
+  js.includes('Array.isArray(v) ? v.length + " item"') && js.includes('typeof v === "object" ? "{…}"'));
 ok("process rows carry no shadow",
   !/\.pitem\.thought \.prow\{[^}]*box-shadow/.test(html.replace(/\s+/g, " ")) &&
   !/\.proc::after\{/.test(html.replace(/\s+/g, "")));
+ok("Routines is a page with sidebar, settings and command entries",
+  html.includes('id="navRoutines"') && html.includes('id="routinesPage"') &&
+  html.includes('id="routineEditor"') && html.includes('id="routineProject"') &&
+  js.includes("function openRoutines(") && js.includes('"/api/routines?all=1"') &&
+  html.includes('data-s="routines"') && js.includes("function settingsRoutines(") &&
+  js.includes('label: "Open Routines"'));
+ok("the routines page is project-scoped and grouped",
+  js.includes("routineFilter") && js.includes("routineShortRoot(r.root)") &&
+  js.includes("function renderRoutineCards(") && js.includes("rpage-group"));
+ok("the routines page is its own view",
+  js.includes("routines-view") && html.includes("body.routines-view #routinesPage{display:flex}"));
+ok("routine runs are tagged with a clock icon",
+  js.includes(": s.routine") && html.includes(".routine-badge"));
+ok("the routine editor covers cadence, writes and history",
+  js.includes('id="rtWhen"') && js.includes('id="rtAllow"') && js.includes("routineHistoryHtml("));
 ok("the conversation stream keeps its flex gap",
   js.includes('$("stream").style.display = "flex"') &&
   html.includes("display:flex;flex-direction:column;gap:20px"));
@@ -567,6 +598,19 @@ ok("process rows are a timeline, not a card",
   /\.proc\{[^}]*border:0/.test(html.replace(/\s+/g, "")) &&
   /\.proc\.open\.proc-b\{[^}]*border-left:1pxsolid/.test(html.replace(/\s+/g, "")) &&
   /\.prow\{[^}]*min-height:28px/.test(html.replace(/\s+/g, "")));
+ok("parallel tool results settle the row with the matching call id",
+  js.includes('it.callId = id || ""') && js.includes("i.callId === id") &&
+  agentJs.includes("id: call.id"));
+ok("a stale session switch cannot paint over a newer one",
+  js.includes("let sessionSwitchToken = 0") && js.includes("token !== sessionSwitchToken"));
+ok("client requests carry a timeout",
+  js.includes("async function fetchJSON(") && js.includes("ctrl.abort()") &&
+  js.includes("clearTimeout(timer)"));
+ok("a server-down abort does not reject unhandled",
+  /fetch\("\/api\/abort"[\s\S]{0,240}?\.catch\(/.test(js));
+ok("client errors are surfaced instead of swallowed",
+  js.includes('addEventListener("unhandledrejection"') && js.includes("function reportClientError(") &&
+  js.includes("function showBootError(") && js.includes("serverDown"));
 ok("a pick per question sends; multiSelect still uses Submit",
   js.includes("const anyMulti = qs.some((q) => q.multiSelect)") &&
   js.includes("(qs.length === 1 && !multi) || (allSingle && ready)") &&
@@ -652,6 +696,49 @@ ok("the sidebar sorts itself into Needs input / Working / Completed",
 ok("the suggestion card can start the session",
   js.includes("function renderSuggest(") && js.includes('case "session_suggestion": renderSuggest(evt);') &&
   js.includes('"[data-start]")') && js.includes("sendToAgent(msg)") && js.includes('"[data-here]")'));
+ok("the send control sits inside the prompt box",
+  html.indexOf('id="cPlus"') < html.indexOf('id="input"') &&
+  html.indexOf('id="input"') < html.indexOf('id="kbdHint"') &&
+  html.indexOf('id="kbdHint"') < html.indexOf('id="cProj"'));
+ok("the row under the prompt carries project, permission, agent and model",
+  html.indexOf('id="cProj"') < html.indexOf('id="cMode"') &&
+  html.indexOf('id="cAgent"') < html.indexOf('id="cModel"'));
+ok("the landing prompt box matches the session bar",
+  html.indexOf('id="bigPlus"') < html.indexOf('id="bigInput"') &&
+  html.indexOf('id="bigInput"') < html.indexOf('id="bigSend"'));
+ok("the prompt surface wraps only the input row",
+  html.includes(".bigbox,.cwrap{background:transparent") &&
+  html.includes(".cbox{background:var(--panel)"));
+ok("the controls row is agent, then model, effort, permission, ring",
+  html.includes("#cAgent,#bigAgent{order:0}") &&
+  html.includes("#cModel,#bigModel{order:1}") &&
+  html.includes("#cEffort,#bigEffort{order:2}") &&
+  html.includes("#cMode,#bigMode{order:3}") &&
+  html.includes("#cRing{order:4}") &&
+  html.includes("#cProj,#bigProj{display:none}"));
+ok("the model and agent picker is compact",
+  html.includes(".mp{padding:0;display:flex;flex-direction:column;width:300px") &&
+  js.includes("Math.min(280") && js.includes("Math.min(340"));
+ok("agents are edited as prompt-only personas",
+  js.includes('id="agentPrompt"') && !js.includes('id="agentTools"') &&
+  !js.includes('id="agentModel"') && !js.includes('id="agentScope"'));
+ok("the agent editor lives in Settings and the agent picker links to it",
+  html.includes('data-s="agents"') && js.includes("function settingsAgents(") &&
+  js.includes('openSettings("agents")') && js.includes("/api/agents/delete"));
+ok("the send appears only when there is something to send",
+  html.includes('id="kbdHint" type="button" title="Send" aria-label="Send message" hidden') &&
+  js.includes("function syncComposerSend(") && js.includes("hidden = !typed && !streaming"));
+ok("the send icon survives the streaming state",
+  js.includes('btn.classList.toggle("stop"') && !js.includes('btn.textContent = on ? "■"'));
+ok("the stop control is borderless and keeps its larger rounded square",
+  html.includes(".kbdh.stop,.kbdh.ready.stop{background:transparent") &&
+  html.includes(".kbdh.stop .ic-stop{width:16px;height:16px}") &&
+  html.includes('width="10" height="10" rx="3"'));
+ok("the sidebar Search button opens the command palette",
+  js.includes('$("navSearch").addEventListener("click", () => openCmd())') &&
+  !html.includes('id="sessSearch"'));
+ok("clickable elements share a quiet custom hover",
+  html.includes(':where(button:not(:disabled),a,[role="button"],summary):hover{background-color:var(--hover)}'));
 ok("the + opens the composer menu and the arrow is gone",
   !html.includes('id="cMore"') && js.includes('$("cPlus").addEventListener("click"') &&
   js.includes('{ label: "Side chat"') && js.includes('{ label: "Attach file"') &&

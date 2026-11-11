@@ -14,6 +14,8 @@ const serverSource = fs.readFileSync("server.js", "utf8");
 ok("the Chat gate accepts both question and ask_user",
   /CHAT_TOOLS = \[[^\]]*"ask_user"[^\]]*"question"/.test(serverSource) &&
   /aliases = \{ question: "ask_user" \}/.test(serverSource));
+ok("Chat can reach the routine tool",
+  /CHAT_TOOLS = \[[^\]]*"schedule"/.test(serverSource));
 
 // Throwaway data dir so credential checks never touch real state.
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "star-code-server-"));
@@ -1230,6 +1232,81 @@ try {
   ok("every entry has a version and notes",
     cl.entries.every((e) => /^\d+\.\d+\.\d+$/.test(e.version) && Array.isArray(e.notes) && e.notes.length > 0));
   ok("the newest entry is the running version", cl.entries[0].version === cl.version, cl.entries[0].version + " vs " + cl.version);
+
+  /* ------------------------------ stability ------------------------------ */
+  const flush = await fetch(s.url + "/api/flush", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  ok("POST /api/flush writes the store and answers", flush.ok && (await flush.json()).ok === true);
+
+  // Reading a transcript must not move the server root (two switches raced).
+  const rootBefore = getRoot();
+  const mk = await fetch(s.url + "/api/sessions/new", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: "Root isolation", kind: "code", cwd: dataDir }),
+  });
+  const made = await mk.json();
+  await fetch(s.url + "/api/sessions/messages?id=" + encodeURIComponent(made.id));
+  ok("reading a transcript leaves the server root alone", getRoot() === rootBefore, getRoot() + " vs " + rootBefore);
+
+  // An oversized body is refused with a status, not a dropped socket.
+  const huge = "x".repeat(2 * 1024 * 1024 + 64);
+  const over = await fetch(s.url + "/api/command", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "help", args: huge }),
+  });
+  ok("an oversized request body is refused with 413", over.status === 413, String(over.status));
+
+  /* ------------------------------ routines ------------------------------ */
+  const mkRoutine = await fetch(s.url + "/api/routines", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ root: dataDir, action: "add", title: "Server brief", prompt: "summarise", when: "weekdays at 08:30" }),
+  });
+  const madeRoutine = await mkRoutine.json();
+  ok("POST /api/routines creates a routine",
+    mkRoutine.ok && madeRoutine.ok && madeRoutine.routine && madeRoutine.routine.enabled === true,
+    JSON.stringify(madeRoutine));
+  const routineId = madeRoutine.routine && madeRoutine.routine.id;
+  const listRoutines = await (await fetch(s.url + "/api/routines?root=" + encodeURIComponent(dataDir))).json();
+  ok("GET /api/routines lists it for that project",
+    listRoutines.ok && listRoutines.routines.some((r) => r.id === routineId && r.root === path.resolve(dataDir)),
+    JSON.stringify(listRoutines.routines && listRoutines.routines.map((r) => r.title)));
+  const editRoutine = await fetch(s.url + "/api/routines", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ root: dataDir, action: "update", id: routineId, title: "Server review", enabled: false, allowTools: true }),
+  });
+  const editedRoutine = await editRoutine.json();
+  ok("POST /api/routines updates title, enabled and tools",
+    editRoutine.ok && editedRoutine.routine.title === "Server review" &&
+    editedRoutine.routine.enabled === false && editedRoutine.routine.allowTools === true,
+    JSON.stringify(editedRoutine.routine));
+  const delRoutine = await fetch(s.url + "/api/routines", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ root: dataDir, action: "remove", id: routineId }),
+  });
+  ok("POST /api/routines removes it", delRoutine.ok && (await delRoutine.json()).ok === true);
+  const alias = await (await fetch(s.url + "/api/schedules")).json();
+  ok("the legacy /api/schedules alias still answers", Array.isArray(alias.due));
+  ok("run now claims, queues and returns immediately",
+    serverSource.includes('status: "queued"') && serverSource.includes("claimRoutine(root") &&
+    serverSource.includes("runDueRoutines().catch"));
+  ok("routine runs are tagged in the session summary", serverSource.includes("routine: s.routine || null"));
+
+  /* ------------------------------ agents ------------------------------ */
+  const saveAgentRes = await fetch(s.url + "/api/agents", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "verify-agent", description: "Temp agent", prompt: "You are verify.", scope: "project", root: dataDir }),
+  });
+  const savedAgent = await saveAgentRes.json();
+  ok("POST /api/agents saves a prompt-only agent",
+    saveAgentRes.ok && savedAgent.ok && savedAgent.agent && savedAgent.agent.promptText === "You are verify.",
+    JSON.stringify(savedAgent));
+  const fullAgents = await (await fetch(s.url + "/api/agents?sessionId=" + encodeURIComponent(made.id) + "&full=1")).json();
+  ok("the full listing carries the editable system prompt",
+    fullAgents.ok && fullAgents.agents.some((a) => a.name === "verify-agent" && a.promptText === "You are verify." && a.source === "project"));
+  const delAgentRes = await fetch(s.url + "/api/agents/delete", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "verify-agent", scope: "project", root: dataDir }),
+  });
+  ok("POST /api/agents/delete removes it", delAgentRes.ok && (await delAgentRes.json()).ok === true);
 
   const bad = await fetch(s.url + "/api/nope");
   ok("unknown route 404s", bad.status === 404);

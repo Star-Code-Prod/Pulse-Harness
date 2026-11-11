@@ -19,11 +19,11 @@ import { readAuth, writeAuthEntry, removeAuthEntry, resolveKey, mask } from "./l
 import { readConfig, writeLastModel, readSeenVersion, writeSeenVersion } from "./lib/config.js";
 import { listKnowledge, readKnowledgeFile, saveKnowledgeFile, deleteKnowledgeFile, knowledgeDir } from "./lib/knowledge.js";
 import { createToolRunner, readProjectMemory, readProjectConfig, activeProcesses, killProcess, TOOL_SPECS } from "./lib/tools.js";
-import { schedulesDue, scheduleAdvance } from "./lib/extras.js";
+import { schedulesDue, scheduleAdvance, routinesDue, claimRoutine, finishRoutine, applyRoutineOp, readRoutines } from "./lib/extras.js";
 // Custom agents ("personas"): the same files the task tool resolves. The
 // desktop lists them for the agent picker, and a chat request may name one as
 // the turn's agent - never wider than the session itself.
-import { listAgentsWithProblems, getAgent, AGENT_DEFAULT_TOOLS, BUILTIN_EXPLORER } from "./lib/agents.js";
+import { listAgentsWithProblems, getAgent, saveAgent, deleteAgent, AGENT_DEFAULT_TOOLS, BUILTIN_EXPLORER } from "./lib/agents.js";
 // Settings import from a local opencode install (Settings > Import). The
 // module owns the whole scan/apply contract; the endpoint below is its only
 // caller, and the report it returns never carries credentials.
@@ -72,14 +72,24 @@ const sessions = new Map();
 // blocked there, so a subagent can never mutate anything or leave the machine.
 // Chat sessions additionally restrict the main runner to CHAT_TOOLS; the same
 // allowlist is inherited by subagents and never widened by a custom agent.
-let subagentCtx = null;
+// One context per running session: two sessions can run turns at once, and a
+// subagent must inherit the model/root of the turn that spawned it, not the
+// last turn that happened to start.
+const subagentContexts = new Map();
+function subagentCtxFor(session) {
+  return session && subagentContexts.get(session.id) ? subagentContexts.get(session.id) : null;
+}
 const subagentControllers = new Map();
 // Live ask_user emitters, one per streaming session. A turn registers its
 // emit here while it runs and removes it when it ends; a call with no live
 // turn for its session falls back to prose.
 const askTurns = new Map();
 const SUBAGENT_BLOCKED = new Set(["write_file", "edit_file", "multi_edit", "run_command", "download", "fetch_url", "websearch", "task"]);
-const CHAT_TOOLS = ["websearch", "fetch_url", "self_knowledge", "search_knowledge", "task", "ask_user", "question", "skill", "create_skill", "suggest_session", "preview"];
+const CHAT_TOOLS = ["websearch", "fetch_url", "self_knowledge", "search_knowledge", "task", "ask_user", "question", "skill", "create_skill", "suggest_session", "schedule", "preview"];
+/** Chat's own tools plus whatever MCP servers are connected right now. */
+function chatToolList() {
+  return CHAT_TOOLS.concat(mcpManager.toolList().map((t) => t.name));
+}
 
 /* --------------------------------- mcp ----------------------------------- */
 // The shared MCP manager: connects enabled servers at boot, exposes their
@@ -107,8 +117,8 @@ function subagentModel(providerId) {
  * parent provider's cheap model, else the parent's model. An unknown provider
  * or a malformed value is ignored, never fatal.
  */
-function subagentTarget(agent) {
-  const parent = subagentCtx;
+function subagentTarget(agent, parent) {
+  if (!parent) return null;
   const wanted = agent && typeof agent.model === "string" ? agent.model.trim() : "";
   if (wanted) {
     const slash = wanted.indexOf("/");
@@ -233,7 +243,8 @@ function makeRunner(r, allowed, session = null) {
       });
     },
     runSubagent: async ({ instructions, agent } = {}) => {
-      if (!subagentCtx) return { error: "no model configured yet - answer without a subagent" };
+      const ctx = subagentCtxFor(session);
+      if (!ctx) return { error: "no model configured yet - answer without a subagent" };
       // A custom agent may narrow the explorer further (its own tools) and
       // pick its own model; the session's allowlist is inherited, not widened.
       let allowedForSub = null;
@@ -245,7 +256,7 @@ function makeRunner(r, allowed, session = null) {
       } else if (Array.isArray(agent?.tools) && agent.tools.length) {
         allowedForSub = agent.tools.slice();
       }
-      const base = createToolRunner(subagentCtx.root, allowedForSub ? { allowed: allowedForSub } : {});
+      const base = createToolRunner(ctx.root, allowedForSub ? { allowed: allowedForSub } : {});
       const gated = allowedForSub ? restrictRunner(base, allowedForSub) : base;
       const parentEmit = session && askTurns.get(session.id);
       const subId = randomUUID();
@@ -273,17 +284,18 @@ function makeRunner(r, allowed, session = null) {
         ? agent.promptText.trim().slice(0, 8000) + "\n\n"
         : "";
       const messages = [
-        { role: "system", content: persona + systemPrompt(subagentCtx.root, "plan") },
+        { role: "system", content: persona + systemPrompt(ctx.root, "plan") },
         { role: "user", content: "Research task - explore and report findings only: " + instructions },
       ];
-      const target = subagentTarget(agent);
+      const target = subagentTarget(agent, ctx);
+      if (!target) return { error: "no model configured yet - answer without a subagent" };
       // A model from a different provider needs that provider's own
       // credentials; the parent's only apply while the provider is the same.
-      const targetKey = target.provider === subagentCtx.provider
-        ? subagentCtx.apiKey
+      const targetKey = target.provider === ctx.provider
+        ? ctx.apiKey
         : resolveKey(target.provider, "", PROVIDERS[target.provider].envKeys || []);
-      const targetBase = target.provider === subagentCtx.provider
-        ? subagentCtx.baseUrl
+      const targetBase = target.provider === ctx.provider
+        ? ctx.baseUrl
         : ((readAuth().providers[target.provider] || {}).baseUrl || undefined);
       let text = "";
       await runAgentTurn({
@@ -421,12 +433,20 @@ function loadStore() {
             uiLog: Array.isArray(s.uiLog) ? s.uiLog : [],
             aborts: new Set(),
             autoAllow: new Set(),
+            routine: s.routine || null,
           };
           if (!isEmptyUntitled(loaded)) sessions.set(s.id, loaded);
         }
       }
     }
-  } catch { /* first run, or unreadable - start empty */ }
+  } catch (e) {
+    // First run is silent. A corrupt store is kept as .bak before the next
+    // write replaces it, so the old sessions are never silently destroyed.
+    if (e && e.code !== "ENOENT") {
+      console.error("could not read sessions store:", e.message);
+      try { fs.copyFileSync(STORE_FILE, STORE_FILE + ".bak"); } catch { /* nothing to keep */ }
+    }
+  }
 }
 
 let saveTimer = null;
@@ -457,6 +477,7 @@ function writeStoreNow() {
           messages,
           uiLog,
           stats: s.stats || emptyStats(),
+          routine: s.routine || null,
         };
       });
     // Atomic: write a temp file, then rename, so a crash or a second
@@ -507,6 +528,9 @@ function summarise(s) {
     created: s.created,
     updated: s.updated,
     turns,
+    // Routine runs are ordinary sessions with a marker, so the sidebar can
+    // tag them and the run history can link back.
+    routine: s.routine || null,
     // A turn was in flight when the app last died: the next start continues it.
     pending: !!s.activeTurn,
     // The sidebar auto-sorts with these: a live turn sits under "Working",
@@ -536,7 +560,7 @@ function chatSystemContent() {
   if (typeof fn !== "function") {
     throw new Error("chat sessions need chatSystemPrompt() from lib/agent.js - this build does not export it");
   }
-  const text = String(fn() || "").trim();
+  const text = String(fn(mcpManager.toolList()) || "").trim();
   if (!text) throw new Error("chatSystemPrompt() returned an empty prompt");
   return text;
 }
@@ -573,6 +597,7 @@ function newSession(title, kind, opts = {}) {
     uiLog: [],
     aborts: new Set(),
     autoAllow: new Set(),
+    routine: opts.routine || null,
   };
   if (opts.worktree) {
     const wt = createWorktree(s.cwd, sid);
@@ -732,21 +757,46 @@ function agentTurnTarget(agent, session) {
  */
 function sessionRunner(s, agent = null) {
   if (agent) {
-    const allowed = agentAllowedTools(agent, s.kind === "chat" ? CHAT_TOOLS : null);
+    const allowed = agentAllowedTools(agent, s.kind === "chat" ? chatToolList() : null);
     return allowed ? makeRunner(sessionRoot(s), allowed, s) : makeRunner(sessionRoot(s), null, s);
   }
-  if (s.kind === "chat") return makeRunner(sessionRoot(s), CHAT_TOOLS, s);
+  if (s.kind === "chat") return makeRunner(sessionRoot(s), chatToolList(), s);
   return makeRunner(sessionRoot(s), null, s);
 }
 
 loadStore();
 
 
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
 function readBody(req) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let data = "";
-    req.on("data", (c) => (data += c));
+    let size = 0;
+    let settled = false;
+    const fail = (statusCode, message) => {
+      if (settled) return;
+      settled = true;
+      const e = new Error(message);
+      e.statusCode = statusCode;
+      reject(e);
+    };
+    req.on("data", (c) => {
+      if (settled) return;
+      size += c.length;
+      if (size > MAX_BODY_BYTES) {
+        fail(413, "request body too large");
+        // Drain the rest without keeping it, so the 413 can still be written
+        // on this socket instead of resetting the connection.
+        req.resume();
+        return;
+      }
+      data += c;
+    });
+    req.on("error", () => fail(400, "request failed"));
+    req.on("aborted", () => fail(400, "request aborted"));
     req.on("end", () => {
+      if (settled) return;
+      settled = true;
       try { resolve(data ? JSON.parse(data) : {}); } catch { resolve({}); }
     });
   });
@@ -1048,15 +1098,45 @@ async function route(req, res) {
       ? sessionRoot(session)
       : (wantedKind === "chat" ? os.homedir() : ROOT);
     const { agents, problems } = listAgentsWithProblems(listingRoot);
+    const full = url.searchParams.get("full") === "1";
+    const entry = (a, source) => full
+      ? { ...agentListingEntry(a, source), promptText: a.promptText || "", file: a.file || null }
+      : agentListingEntry(a, source);
     const out = {
       ok: true,
-      agents: [
-        agentListingEntry(BUILTIN_EXPLORER, BUILTIN_EXPLORER.source),
-        ...agents.map((a) => agentListingEntry(a, a.source)),
-      ],
+      root: listingRoot,
+      agents: [entry(BUILTIN_EXPLORER, BUILTIN_EXPLORER.source), ...agents.map((a) => entry(a, a.source))],
     };
     if (problems.length) out.problems = problems;
     return sendJSON(res, 200, out);
+  }
+  if (req.method === "POST" && url.pathname === "/api/agents") {
+    const body = await readBody(req);
+    const root = body.root ? path.resolve(String(body.root)) : ROOT;
+    const result = saveAgent(root, {
+      name: body.name,
+      description: body.description,
+      tools: body.tools,
+      model: body.model,
+      promptText: body.prompt,
+      scope: body.scope === "user" ? "user" : "project",
+    });
+    if (!result.ok) return sendJSON(res, 400, { ok: false, error: result.error });
+    const saved = getAgent(root, body.name);
+    return sendJSON(res, 200, {
+      ok: true,
+      agent: saved ? {
+        name: saved.name, description: saved.description, source: saved.source, file: saved.file,
+        tools: saved.tools, model: saved.model, promptText: saved.promptText,
+      } : null,
+    });
+  }
+  if (req.method === "POST" && url.pathname === "/api/agents/delete") {
+    const body = await readBody(req);
+    const root = body.root ? path.resolve(String(body.root)) : ROOT;
+    const result = deleteAgent(root, { name: body.name, scope: body.scope === "user" ? "user" : "project" });
+    if (!result.ok) return sendJSON(res, 400, { ok: false, error: result.error });
+    return sendJSON(res, 200, { ok: true });
   }
 
   /* --------------------------------- mcp --------------------------------- */
@@ -1448,6 +1528,47 @@ async function route(req, res) {
     }
   }
 
+  /* ------------------------------ routines ------------------------------ */
+  // The UI and the agent's `schedule` tool share one v2 store per project.
+  if (req.method === "GET" && url.pathname === "/api/routines") {
+    try {
+      const all = url.searchParams.get("all") === "1";
+      const one = String(url.searchParams.get("root") || "").trim();
+      const roots = all ? knownRoots() : [one ? path.resolve(one) : ROOT];
+      const routines = [];
+      for (const r of roots) {
+        for (const t of await readRoutines(r)) routines.push({ ...t, root: r });
+      }
+      return sendJSON(res, 200, { ok: true, roots, routines });
+    } catch (e) {
+      return sendJSON(res, 500, { ok: false, error: e.message, routines: [] });
+    }
+  }
+  if (req.method === "POST" && url.pathname === "/api/routines") {
+    const body = await readBody(req);
+    const root = body.root ? path.resolve(String(body.root)) : ROOT;
+    try {
+      rememberRoutineRoot(root);
+      if (String(body.action || "") === "run") {
+        // Claim synchronously, then run in the background: the UI gets an
+        // immediate answer and the minute timer can never double-run it.
+        const claim = await claimRoutine(root, String(body.id || ""), "manual");
+        if (!claim) return sendJSON(res, 400, { ok: false, error: "that routine is already running or does not exist" });
+        runRoutine(claim.task, root, { trigger: "manual", runId: claim.runId, late: false }).catch(() => {});
+        return sendJSON(res, 200, { ok: true, routine: claim.task, sessionId: "", status: "queued" });
+      }
+      const out = await applyRoutineOp(root, body);
+      if (!out.ok) return sendJSON(res, 400, { ok: false, error: out.error });
+      return sendJSON(res, 200, {
+        ok: true, root,
+        routine: out.routine || null,
+        routines: out.routine ? undefined : (out.tasks || []),
+      });
+    } catch (e) {
+      return sendJSON(res, 500, { ok: false, error: e.message });
+    }
+  }
+
   // Recurring work: the app asks what is due, then runs it and advances the clock.
   if (req.method === "GET" && url.pathname === "/api/schedules") {
     try {
@@ -1498,11 +1619,9 @@ async function route(req, res) {
   if (req.method === "GET" && url.pathname === "/api/sessions/messages") {
     const s = sessions.get(url.searchParams.get("id"));
     if (!s) return sendJSON(res, 404, { error: "no such session" });
-    // The file tree, previews and terminal follow the session the user opens.
-    if (s.cwd && fs.existsSync(s.cwd)) {
-      ROOT = s.cwd;
-      mcpManager.setRoot(ROOT);
-    }
+    // Reading a transcript must not move the server-wide root: two switches
+    // can race. The client activates the root after it has painted the
+    // session (POST /api/setroot), so the file tree still follows the open tab.
     // The client rebuilds the transcript from this: no system prompt; tool
     // results stay (flagged) so tool rows and ask-card answers replay, and
     // `ui` carries the cards that were never model messages (thinking,
@@ -1606,11 +1725,11 @@ async function route(req, res) {
     const turnTarget = selectedAgent
       ? agentTurnTarget(selectedAgent, { provider, model, apiKey: effectiveKey, baseUrl: effectiveBaseUrl })
       : { provider, model, apiKey: effectiveKey, baseUrl: effectiveBaseUrl };
-    subagentCtx = {
+    subagentContexts.set(session.id, {
       root: sessionRoot(session),
       provider: turnTarget.provider, model: turnTarget.model,
       apiKey: turnTarget.apiKey, baseUrl: turnTarget.baseUrl,
-    };
+    });
 
     // Refresh the system prompt so mode/memory changes take effect. Chat
     // sessions use chatSystemPrompt(); code sessions keep the coding prompt.
@@ -1624,6 +1743,23 @@ async function route(req, res) {
     };
 
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+    // A closed tab must not leave a provider request running (or a permission
+    // promise waiting forever). Abort the turn and settle every open card.
+    let clientGone = false;
+    const clientGoneNow = () => {
+      clientGone = true;
+      for (const c of session.aborts) c.abort = true;
+      for (const resolve of session.pending.values()) {
+        try { resolve({ allowed: false, scope: "once" }); } catch { /* settled */ }
+      }
+      session.pending.clear();
+      for (const resolve of session.asks.values()) {
+        try { resolve([]); } catch { /* settled */ }
+      }
+      session.asks.clear();
+    };
+    res.on("close", clientGoneNow);
+    res.on("error", clientGoneNow);
     // In-flight marker: persisted with the session, cleared when the turn
     // ends. If the app (or the machine) dies mid-turn, the next boot sees it
     // and continues the conversation where it stopped. (session.pending is
@@ -1647,7 +1783,9 @@ async function route(req, res) {
         if (thinkAcc.trim()) pushUi(session, { type: "thinking", after: uiAfter(session), ms: Number(evt.ms) || 0, text: thinkAcc.slice(0, 2500) });
         thinkAcc = "";
       }
-      res.write(`data: ${JSON.stringify(evt)}\n\n`);
+      if (!clientGone) {
+        try { res.write(`data: ${JSON.stringify(evt)}\n\n`); } catch { clientGone = true; }
+      }
     };
     emit({ type: "session", sessionId: session.id, kind: session.kind, root: sessionRoot(session), title: session.title, mode: session.mode, agent: selectedAgent ? selectedAgent.name : null });
     pluginManager.fire("turn_start", {
@@ -1659,7 +1797,7 @@ async function route(req, res) {
       new Promise((resolve) => {
         const id = randomUUID();
         session.pending.set(id, resolve);
-        pushUi(session, { type: "permission", after: uiAfter(session), id, name: info.name, args: info.args, ask: info.ask || "", verdict: null });
+        pushUi(session, { type: "permission", after: uiAfter(session), id, name: info.name, args: info.args, ask: info.ask || "", mcp: info.mcp || null, verdict: null });
         emit({ type: "permission_request", id, ...info });
       });
 
@@ -1699,6 +1837,7 @@ async function route(req, res) {
     session.messages[0] = { role: "system", content: sessionSystemContent(session) };
     session.updated = Date.now();
     session.activeTurn = 0;
+    subagentContexts.delete(session.id);
     askTurns.delete(session.id);
     pluginManager.fire("turn_end", { sessionId: session.id, kind: session.kind, aborted: !!controller.abort });
     persist();
@@ -1780,6 +1919,11 @@ async function route(req, res) {
     return sendJSON(res, 200, { ok: true });
   }
 
+  if (req.method === "POST" && url.pathname === "/api/flush") {
+    flushStore();
+    return sendJSON(res, 200, { ok: true });
+  }
+
   if (req.method === "POST" && url.pathname === "/api/reset") {
     const { sessionId } = await readBody(req);
     if (sessionId && sessions.has(sessionId)) {
@@ -1801,20 +1945,55 @@ async function handler(req, res) {
   try {
     await route(req, res);
   } catch (e) {
-    try { sendJSON(res, 500, { error: e.message }); } catch { /* headers already sent */ }
+    try { sendJSON(res, e && e.statusCode ? e.statusCode : 500, { error: e.message }); } catch { /* headers already sent */ }
   }
 }
 process.on("unhandledRejection", (e) => {
   console.error("unhandled rejection:", e?.message || e);
+});
+// A stray throw in a timer or stream callback must not take the whole desktop
+// process down; log it and keep serving. The HTTP guard above handles routes.
+process.on("uncaughtException", (e) => {
+  console.error("uncaught exception:", e?.stack || e?.message || e);
 });
 
 /**
  * Start the local server. Returns { port, url, close }.
  * `root` overrides the working directory the agent operates on.
  */
-/** Run one due schedule without a browser: a fresh code session in safe Plan
- *  mode, so a scheduled prompt can never widen its own permissions. */
-async function runScheduledHeadless(task) {
+/** The project folders the UI has created routines in, kept across launches
+ *  so a routine still fires after the app restarts on another project. */
+function routineRootsFile() {
+  return path.join(path.dirname(STORE_FILE), "routine-roots.json");
+}
+function rememberedRoutineRoots() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(routineRootsFile(), "utf8"));
+    return Array.isArray(raw.roots) ? raw.roots.map(String).filter(Boolean) : [];
+  } catch { return []; }
+}
+function rememberRoutineRoot(root) {
+  const r = path.resolve(root);
+  const roots = new Set(rememberedRoutineRoots());
+  if (roots.has(r)) return;
+  roots.add(r);
+  try {
+    fs.mkdirSync(path.dirname(routineRootsFile()), { recursive: true });
+    fs.writeFileSync(routineRootsFile(), JSON.stringify({ roots: [...roots] }, null, 1));
+  } catch { /* remembering is best-effort */ }
+}
+
+/** Project roots a routine may run in: the server root, every code session's
+ *  folder, and every folder the UI registered a routine in. */
+function knownRoots() {
+  const roots = new Set([ROOT, ...rememberedRoutineRoots()]);
+  for (const s of sessions.values()) {
+    if (s.kind !== "chat" && s.cwd) roots.add(s.cwd);
+  }
+  return [...roots].filter((r) => { try { return fs.existsSync(r); } catch { return false; } });
+}
+
+function routineTarget() {
   let provider = "", model = "", key = "";
   try {
     const last = readConfig().lastModel || {};
@@ -1829,44 +2008,91 @@ async function runScheduledHeadless(task) {
   } else {
     key = resolveKey(provider, "", (PROVIDERS[provider] && PROVIDERS[provider].envKeys) || []);
   }
-  if (!provider || !key) return false;
-  const s = newSession("Scheduled: " + task.title, "code");
-  s.mode = "plan";
+  if (!provider || !key) return null;
+  return {
+    provider, key,
+    model: model || (PROVIDERS[provider] && PROVIDERS[provider].defaultModel) || "",
+    baseUrl: (readAuth().providers[provider] || {}).baseUrl || undefined,
+  };
+}
+
+/** Run one claimed routine in a fresh session. Read-only unless the routine
+ *  explicitly allows writes and commands. */
+async function runRoutine(task, root, { trigger = "schedule", runId = "", late = false } = {}) {
+  const target = routineTarget();
+  if (!target) {
+    await finishRoutine(root, task.id, runId, { status: "skipped", error: "no provider key" });
+    return { status: "skipped", sessionId: "" };
+  }
+  const allow = task.allowTools === true;
+  const s = newSession("Routine: " + task.title, "code", {
+    cwd: root,
+    routine: { id: task.id, title: task.title, runId, late: !!late, trigger },
+  });
+  s.mode = allow ? "manual" : "plan";
   s.messages[0] = { role: "system", content: sessionSystemContent(s) };
   s.messages.push({ role: "user", content: task.prompt });
   s.activeTurn = Date.now();
   persist();
+  const beforeAssistant = s.messages.filter((m) => m.role === "assistant").length;
+  const controller = { abort: false };
+  s.aborts.add(controller);
+  let doneText = "";
+  // A provider that never answers must not leave the routine "Running"
+  // forever: the watchdog aborts the turn, and the finally still settles it.
+  const watchdog = setTimeout(() => { controller.abort = true; }, 10 * 60_000);
+  if (watchdog.unref) watchdog.unref();
   try {
     await agentLib.runAgentTurn({
-      provider, model: model || (PROVIDERS[provider] && PROVIDERS[provider].defaultModel) || "",
-      apiKey: key,
-      baseUrl: (readAuth().providers[provider] || {}).baseUrl || undefined,
+      provider: target.provider, model: target.model, apiKey: target.key, baseUrl: target.baseUrl,
       messages: s.messages, runner: sessionRunner(s),
-      emit: () => {}, requestPermission: async () => ({ allowed: false, scope: "once" }),
-      mode: "plan", autoAllow: new Set(),
+      emit: (e) => { if (e && e.type === "done" && typeof e.text === "string") doneText = e.text; },
+      requestPermission: async () => ({ allowed: allow, scope: "once" }),
+      mode: allow ? "manual" : "plan", autoAllow: new Set(), controller,
     });
+    // A reply that streamed only a note is still worth keeping in the run.
+    if (s.messages.filter((m) => m.role === "assistant").length === beforeAssistant &&
+        doneText && doneText !== "(Stopped)") {
+      s.messages.push({ role: "assistant", content: doneText });
+    }
+    const answered = s.messages.filter((m) => m.role === "assistant").length > beforeAssistant;
+    const status = answered ? (late ? "late" : "ok") : "error";
+    await finishRoutine(root, task.id, runId, {
+      status, sessionId: s.id,
+      error: answered ? "" : (controller.abort ? "the run timed out" : "the model returned no answer"),
+    });
+    return { status, sessionId: s.id };
   } catch (e) {
-    s.messages.push({ role: "assistant", content: "Scheduled run failed: " + e.message });
+    s.messages.push({ role: "assistant", content: "Routine failed: " + e.message });
+    await finishRoutine(root, task.id, runId, { status: "error", error: e.message, sessionId: s.id });
+    return { status: "error", sessionId: s.id };
   } finally {
+    clearTimeout(watchdog);
+    s.aborts.delete(controller);
     s.activeTurn = 0;
     s.updated = Date.now();
     persist();
   }
-  return true;
 }
 
-async function runDueSchedulesHeadless() {
+/** One pass over every known project. A routine missed while the app was
+ *  closed runs once and is marked late; `finishRoutine` moves it to its next
+ *  future slot, so a long downtime never replays a backlog. */
+async function runDueRoutines() {
   if (headlessSchedBusy) return;
   headlessSchedBusy = true;
   try {
-    const due = await schedulesDue(ROOT);
-    for (const task of due) {
-      const ran = await runScheduledHeadless(task);
-      await scheduleAdvance(ROOT, task.id);
-      if (!ran) console.log("[schedule] skipped \"" + task.title + "\": no provider key");
+    for (const root of knownRoots()) {
+      const due = await routinesDue(root);
+      for (const task of due) {
+        const overdue = task.next > 0 && Date.now() - task.next > 60_000;
+        const claim = await claimRoutine(root, task.id, overdue ? "catchup" : "schedule");
+        if (!claim) continue;
+        await runRoutine(claim.task, root, { trigger: claim.late ? "catchup" : "schedule", runId: claim.runId, late: claim.late });
+      }
     }
   } catch (e) {
-    console.error("[schedule] " + e.message);
+    console.error("[routine] " + e.message);
   } finally {
     headlessSchedBusy = false;
   }
@@ -1882,6 +2108,12 @@ export async function startServer({ port = PORT, root, silent = false } = {}) {
   // Plugins load before the port opens: the first turn already sees their
   // tools. A broken plugin reports on its Settings row, never throws here.
   await pluginManager.load({ version: VERSION });
+  // Give MCP servers a short head start so the first turn already sees their
+  // tools. A slow npx install must not hold startup hostage, so cap the wait.
+  await Promise.race([
+    mcpManager.ready(),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ]);
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, "127.0.0.1", resolve);
@@ -1892,8 +2124,11 @@ export async function startServer({ port = PORT, root, silent = false } = {}) {
     console.log("  -> http://127.0.0.1:" + actual);
     console.log("  Working directory: " + ROOT + "\n");
   }
+  // Catch up once (a routine missed while the app was closed runs late), then
+  // poll every minute. STAR_DISABLE_SCHEDULER keeps tests in control.
+  if (!process.env.STAR_DISABLE_SCHEDULER) runDueRoutines().catch(() => {});
   const schedTimer = process.env.STAR_DISABLE_SCHEDULER ? null : setInterval(() => {
-    runDueSchedulesHeadless().catch(() => {});
+    runDueRoutines().catch(() => {});
   }, 60_000);
   if (schedTimer && schedTimer.unref) schedTimer.unref();
   return {

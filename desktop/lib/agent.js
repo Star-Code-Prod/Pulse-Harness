@@ -400,12 +400,13 @@ Narrative films (a history, a process, "civilization day 1 to now"): write a sma
  * coding doctrine - Chat is conversation - but artifacts work the same in
  * both modes, so the artifact doctrine is included verbatim.
  */
-export function chatSystemPrompt() {
+export function chatSystemPrompt(extraTools = []) {
   let skBlock = "";
   try {
     const catalog = catalogText(scanSkills(os.homedir()));
     if (catalog) skBlock = "\n" + catalog;
   } catch { /* skills are optional */ }
+  const mcpBlock = mcpPromptBlock(extraTools);
   return `You are Pulse, a helpful, knowledgeable general assistant in the Pulse Harness desktop app (Chat mode). This is a conversation, not a coding session.
 
 ${PULSE_DOC}Tools you can call:
@@ -418,9 +419,10 @@ ${PULSE_DOC}Tools you can call:
 - skill: load a skill pack when its description matches the task. Pulse ships 65 built-in packs (asking-questions, pulse-harness, research, summarizing, planning, technical-writing and more) - a skill carries exact procedures; load it first, then follow it
 - create_skill: save a new reusable procedure as a SKILL.md pack when the user asks you to remember a workflow
 - suggest_session: when a request clearly doesn't belong to this conversation's topic, offer a fresh session as a clickable card (a real title + one-sentence description) instead of stretching this thread to cover it
+- schedule: create a routine when the user asks for recurring work ("every morning", "each Friday", "remind me to…"). Call it with action:"add", a title, the prompt that should run, and a plain-language when ("weekdays at 08:30", "hourly", "every 2 hours", "daily at 09:00"). It appears in the Routines page and runs read-only unless the user explicitly asks it to make changes (allowTools:true).
 
 ## Chat mode tool boundary
-This is Chat mode. The ONLY tools available are: websearch, fetch_url, self_knowledge, search_knowledge, task, ask_user (question), skill, create_skill, suggest_session, preview. Do not call any tool not on that list - no read_file, write_file, edit_file, run_command, or Office tools. The Code-mode tool map elsewhere in this prompt is reference only. A document, essay, email, letter or assignment is written directly as prose (the app turns it into an editable writing block); it never needs an Office or file tool. If a request truly needs local files, Office files or code changes, say in one line that it needs Code mode and offer to switch to Code mode.
+This is Chat mode. The ONLY tools available are: websearch, fetch_url, self_knowledge, search_knowledge, task, ask_user (question), skill, create_skill, suggest_session, schedule, preview, plus any MCP tools listed below. Do not call any other tool - no read_file, write_file, edit_file, run_command, or Office tools. The Code-mode tool map elsewhere in this prompt is reference only. A document, essay, email, letter or assignment is written directly as prose (the app turns it into an editable writing block); it never needs an Office or file tool. If a request truly needs local files, Office files or code changes, say in one line that it needs Code mode and offer to switch to Code mode.
 
 To call a tool, emit one or more blocks, then stop and wait for the results:
 \`\`\`tool
@@ -437,7 +439,7 @@ Rules:
 - This is Chat, not a coding session: for real file work (building a mod, editing a project) research and answer here, then tell the user to open a code session on that project folder - writes happen there.
 - Attached files arrive at the end of the message as [attached file: <absolute path>] - use them by path.
 - If the content itself contains a \`\`\` fence, open your block with four backticks instead.
-${skBlock}
+${mcpBlock}${skBlock}
 ${ARTIFACTS_DOC}`;
 }
 
@@ -558,6 +560,40 @@ When the user asks how Pulse Harness works, what a feature does, where a file li
 
 `;
 
+/** The prompt block for connected MCP tools: grouped by server, with each
+ *  server's own guidance and every tool's parameters and risk hints. */
+function isMcpTool(t) {
+  return !!(t && t.name && (t.kind === "mcp" || t.server || /^mcp__/.test(String(t.name))));
+}
+
+function mcpPromptBlock(extraTools) {
+  const tools = (Array.isArray(extraTools) ? extraTools : [])
+    .filter(isMcpTool)
+    .slice(0, 80);
+  if (!tools.length) return "";
+  const groups = new Map();
+  for (const t of tools) {
+    const key = t.server || "mcp";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+  let out = "\nMCP tools - call them exactly like the built-in tools, with the same \`\`\`tool block and their full name; each call asks for permission first.\n";
+  for (const [server, list] of groups) {
+    const head = list[0] || {};
+    const title = head.serverTitle || server;
+    const guidance = String(head.serverInstructions || "").replace(/\s+/g, " ").slice(0, 2000);
+    out += "\n[" + title + "]\n";
+    if (guidance) out += "Server guidance: " + guidance + "\n";
+    out += list.map((t) => {
+      const notes = [t.readOnly ? "read-only" : "", t.destructive ? "can modify data" : ""].filter(Boolean).join(", ");
+      return "- " + t.name + (t.params ? "(" + t.params + ")" : "") +
+        (t.description ? " - " + String(t.description).replace(/\s+/g, " ").slice(0, 200) : "") +
+        (notes ? " [" + notes + "]" : "");
+    }).join("\n") + "\n";
+  }
+  return out + "Reach for one of these only when the job is about the app or service it fronts; for reading files, searching, editing and running commands use the built-in tools, which are faster and cheaper.\n";
+}
+
 function buildSystemPrompt(root, mode, extraTools = [], skillCatalog = "") {
   const mem = readProjectMemory(root);
   const projectCfg = readProjectConfig(root);
@@ -594,22 +630,24 @@ function buildSystemPrompt(root, mode, extraTools = [], skillCatalog = "") {
   const planNote = mode === "plan"
     ? "\nPLAN MODE: read-only. Do not edit files or run mutating commands. Explore, then propose a plan and stop.\n"
     : "";
-  // Tools from connected MCP servers (local or remote): one line each with
-  // their parameters in parentheses, so the model can actually construct a
-  // call. Every call goes through the normal permission ask (they count as
-  // dangerous), and the call shape is the ordinary fenced tool block.
-  const extra = (Array.isArray(extraTools) ? extraTools : []).slice(0, 40);
-  const extraBlock = extra.length
-    ? "\nMCP tools (from connected MCP servers, local or remote; call them exactly like the built-in tools, with the same \`\`\`tool block and their full name, arguments following the listed parameters; each call asks for permission first):\n" +
-      extra.map((t) => "- " + t.name + (t.params ? "(" + t.params + ")" : "") +
-        (t.description ? " - " + String(t.description).replace(/\s+/g, " ").slice(0, 140) : "")).join("\n") +
-      "\nReach for one of these only when the job is about the app or service it fronts; for reading files, searching, editing and running commands use the built-in tools, which are faster and cheaper.\n"
+  // Tools from connected MCP servers (local or remote): grouped by server,
+  // with each server's own guidance and every tool's parameters, so the model
+  // can construct a call without guessing. Every call goes through the normal
+  // permission ask (they count as dangerous).
+  const allExtra = (Array.isArray(extraTools) ? extraTools : []).filter((t) => t && t.name);
+  const mcpTools = allExtra.filter(isMcpTool);
+  const mcpBlock = mcpPromptBlock(allExtra);
+  const pluginTools = allExtra.filter((t) => !isMcpTool(t)).slice(0, 40);
+  const pluginBlock = pluginTools.length
+    ? "\nPlugin tools (from installed plugins; call them like built-in tools):\n" +
+      pluginTools.map((t) => "- " + t.name + (t.params ? "(" + t.params + ")" : "") +
+        (t.description ? " - " + String(t.description).replace(/\s+/g, " ").slice(0, 140) : "")).join("\n") + "\n"
     : "";
   // Blender craft: when a blender-ish server is live the agent is the hands
   // and the Preview pane is the user's eyes - iterate on the visual. The
   // tools only appear here when Blender itself answered its socket; a closed
   // Blender hides them (server.js refreshes availability per turn).
-  const blenderLine = extra.some((t) => /blender/i.test(t.name || ""))
+  const blenderLine = mcpTools.some((t) => /blender/i.test(t.name || ""))
     ? "\nBlender is running with its bridge: script it through its tools and build models like a craftsman. Look at the viewport (the screenshot tool) after each meaningful step so the user sees progress live in the Preview pane - you cannot read the image back, so verify geometry by inspecting the scene (get scene info, bounding boxes, vertex counts) and state what you checked. Work silhouette first, then structure, then materials and lighting; fix what the scene facts say is wrong, then move on. Name and keep objects (LowerBody, Roof_Plane), keep the scene clean, and only call a model done when the numbers and the render story agree. These tools are for 3D scenes only - never use Blender's Python to read files, run shell commands or do any chore the built-in tools already do, and if a call reports Blender is closed, stop using it and say so.\n"
     : "";
 
@@ -617,10 +655,11 @@ function buildSystemPrompt(root, mode, extraTools = [], skillCatalog = "") {
 ${PULSE_DOC}${memBlock}${cfgBlock}${rememberBlock}${knBlock}${mapBlock}${skBlock}${planNote}
 Tools: read_file, list_dir, search_files, glob_files, write_file, edit_file, multi_edit, run_command, test_run, git_status, git_diff, git_log, git_commit, office_read, office_write, memory, template, chart, schedule, trace, connector, deliver_file, download, search_knowledge, task, fetch_url, websearch, self_knowledge, question (alias ask_user), skill, create_skill, use_folder, preview.
 The "Tools by job" guide above maps every tool to its job and the "Calling tools" rules cover the call shape. Use test_run after edits instead of claiming a test passed; use git_diff/git_status before describing changes; use office_read/office_write for Word/Excel/PowerPoint instead of plain text files. Load the matching skill from the catalog before specialized work and follow it.
+When the user asks for a routine, a recurring task, a daily/weekly brief, or a reminder that should run on its own, call schedule with action:"add" (title, prompt, and a plain-language when such as "weekdays at 08:30"; hourly, "every 2 hours" and "daily at 09:00" work too). The routine appears in this project's Routines page and runs in a fresh session. It is read-only unless the user explicitly wants it to edit files or run commands: only then set allowTools:true. If they name a different project, use_folder there first and then schedule, so it lands in that project's Routines page. Use action:"list" to show what exists and action:"update"/"disable"/"run" to manage it.
 task spawns a read-only explorer subagent with fresh context for research: one call per mission, and independent calls in one step (missions, reads, searches) run in parallel. Send missions to verify facts that live outside this conversation - reference corpora, other projects, big codebases - with exact paths and precise questions, and demand evidence back (file, line, signature). Never state a checkable fact you could have sent a mission to verify, and never hand over a scaffold stamped "unverified" when a mission could have read the source first. fetch_url and websearch ask for permission and plan mode blocks them; download fetches a file with source, hash, signature and virus checks (see the doctrine below); self_knowledge answers questions about Pulse Harness itself; ask_user shows the user 1-4 questions with 2-4 clickable options each (put the recommended option first, labelled "(Recommended)") or a freeform answer when allowOther is true - prefer a click over a prose question whenever a decision is needed; skill loads an available skill pack - when a skill's description matches the task, load it and follow its procedure exactly; use_folder sets this session's working folder when the user names one in chat - adopt it the moment they say it (never tell them to pick a project; they type the folder, you bind it); suggest_session offers a click-to-start card when the user's request clearly begins a DIFFERENT task than this session's work (another project, another idea) - offer it once with a real title and a one-sentence description, then keep helping here either way.
 
 How to close a turn: end a substantive turn with a compact recap of what changed (files, commands, outcomes), what you verified, and what is still open - 2-5 short lines or a tight list, no filler and no restating the request. Small answers stay small; a recap is for work, not for chatter.
-${extraBlock}${blenderLine}
+${mcpBlock}${pluginBlock}${blenderLine}
 
 Rules:
 - Understanding first: read the ask before acting. Load the matching skill first for specialized work; the catalog lists what each pack covers. When the outcome is not obvious, say in one line what you understand it to be before your first tool call; if two readings differ materially, ask ONE question with ask_user instead of guessing. Follow the project's own conventions (README, package.json, config, existing code) - the map is orientation, the files are truth. When you learn something that changes the plan, say so and adjust - never silently drift.
@@ -1191,6 +1230,7 @@ export async function runAgentTurn({
   let softRetries = 0;    // stream dropped before the first byte
   let silentRetries = 0;  // model answered with neither prose nor a tool call
   let promiseRetries = 0; // model announced a tool action but emitted no call
+  let toolCallSeq = 0;    // ids let parallel result events settle the right row
 
   /** Shared tail of tool handling: clip, dedupe, emit and record one result.
    *  The sequential path and parallel fleets both settle through here. */
@@ -1200,7 +1240,7 @@ export async function runAgentTurn({
     // identical bytes already in the transcript (and not pruned) are not
     // paid for twice: push a stub that points back at them instead
     const reused = hasIdenticalToolResult(messages, body);
-    const event = { type: "tool_result", name: call.name, status: allowed ? "ok" : "denied", preview: clipped.slice(0, 1200) };
+    const event = { type: "tool_result", id: call.id, name: call.name, status: allowed ? "ok" : "denied", preview: clipped.slice(0, 1200) };
     if (reused) event.reused = true;
     emit(event);
     messages.push({ role: "user", content: reused ? identicalReuseStub(call.name, str.length) : body });
@@ -1324,6 +1364,7 @@ export async function runAgentTurn({
     }
 
     let { text, calls, todos } = parseAssistantContent(full);
+    for (const c of calls) c.id = "tc" + (++toolCallSeq);
     if (full.trim()) messages.push({ role: "assistant", content: full });
 
     if (todos) emit({ type: "todos", todos });
@@ -1378,7 +1419,7 @@ export async function runAgentTurn({
         !runner.isDangerous(c.name))
     ) {
       for (const call of calls) {
-        emit({ type: "tool", name: call.name, args: call.args, dangerous: false, allowed: true, status: "running" });
+        emit({ type: "tool", id: call.id, name: call.name, args: call.args, dangerous: false, allowed: true, status: "running" });
       }
       const results = await Promise.all(calls.map((c) => Promise.resolve()
         .then(() => runner.run(c.name, c.args))
@@ -1391,7 +1432,7 @@ export async function runAgentTurn({
       const decision = decisionFor(mode, call.name, autoAllow, call.args);
 
       if (decision === "deny") {
-        emit({ type: "tool", name: call.name, args: call.args, dangerous: true, allowed: false, status: "denied" });
+        emit({ type: "tool", id: call.id, name: call.name, args: call.args, dangerous: true, allowed: false, status: "denied" });
         messages.push({
           role: "user",
           content: TOOL_RESULT_PREFIX + call.name +
@@ -1402,13 +1443,15 @@ export async function runAgentTurn({
 
       let allowed = decision === "allow";
       if (decision === "ask") {
-        const verdict = await requestPermission(permissionAskFor(call.name, call.args, runner.isDangerous(call.name)));
+        const ask = permissionAskFor(call.name, call.args, runner.isDangerous(call.name));
+        const mcp = runner.mcpMeta ? runner.mcpMeta(call.name) : null;
+        const verdict = await requestPermission(mcp ? { ...ask, mcp } : ask);
         allowed = !!(verdict && verdict.allowed);
         if (allowed && verdict.scope === "session") autoAllow.add(call.name);
       }
 
       const snapshot = runner.isDangerous(call.name) && allowed ? await safeRead(runner, call) : null;
-      emit({ type: "tool", name: call.name, args: call.args, dangerous: runner.isDangerous(call.name), allowed, status: allowed ? "running" : "denied" });
+      emit({ type: "tool", id: call.id, name: call.name, args: call.args, dangerous: runner.isDangerous(call.name), allowed, status: allowed ? "running" : "denied" });
 
       let result;
       if (!allowed) {

@@ -1,0 +1,3 @@
+# Local agent state: routines, schedules, knowledge and traces are per-project
+# data, never source. Sessions live in the app data folder, not here.
+.star-code/

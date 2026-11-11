@@ -211,9 +211,9 @@ export const TOOL_SPECS = [
   },
   {
     name: "schedule",
-    description: "Recurring tasks (weekly reports, morning briefs). action:\"add\" (title, prompt, when) | \"list\" | \"remove\" (id or title). when reads like \"every 2 hours\", \"every day at 09:00\" or \"daily at 08:30\"; prompt is the request that will run.",
+    description: "Routines: saved prompts that run on a cadence (morning briefs, weekly reports, recurring reviews). action:\"add\" (title, prompt, when) | \"list\" | \"update\" (id plus any of title/prompt/when/enabled/allowTools) | \"remove\" (id or title) | \"enable\"/\"disable\" | \"run\" (queue it now) | \"history\". when reads like \"every 2 hours\", \"hourly\", \"every day at 09:00\", \"daily at 08:30\" or \"weekdays at 08:30\". A routine runs read-only unless allowTools is true. prompt is the request that will run in a fresh session.",
     dangerous: false,
-    schema: { action: "string", title: "string?", prompt: "string?", when: "string?", id: "string?" },
+    schema: { action: "string", title: "string?", prompt: "string?", when: "string?", id: "string?", enabled: "boolean?", allowTools: "boolean?" },
   },
   {
     name: "trace",
@@ -1584,6 +1584,17 @@ export function createToolRunner(root, opts = {}) {
       if (plugins && plugins.has(name)) return plugins.isDangerous(name); // plugin tools ask by default
       if (String(name).startsWith("mcp__")) return true; // a server tool acts outside Star's sandbox: always ask
       return !!TOOL_SPECS.find((t) => t.name === name)?.dangerous;
+    },
+    /** Server, title and annotation hints for an MCP tool, for the permission
+     *  card. Null for built-ins and unknown names. */
+    mcpMeta(name) {
+      if (!mcp || !String(name).startsWith("mcp__")) return null;
+      const t = mcp.toolList().find((x) => x.name === name);
+      return t ? {
+        server: t.server, serverTitle: t.serverTitle, title: t.title || "",
+        readOnly: !!t.readOnly, destructive: !!t.destructive,
+        description: t.description || "", params: t.params || "",
+      } : null;
     },
     root,
     /** The allowed tool names (null = every tool), for the chat loop. */
