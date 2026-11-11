@@ -1290,6 +1290,24 @@ try {
     serverSource.includes("runDueRoutines().catch"));
   ok("routine runs are tagged in the session summary", serverSource.includes("routine: s.routine || null"));
 
+  /* ------------------------------ agents ------------------------------ */
+  const saveAgentRes = await fetch(s.url + "/api/agents", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "verify-agent", description: "Temp agent", prompt: "You are verify.", scope: "project", root: dataDir }),
+  });
+  const savedAgent = await saveAgentRes.json();
+  ok("POST /api/agents saves a prompt-only agent",
+    saveAgentRes.ok && savedAgent.ok && savedAgent.agent && savedAgent.agent.promptText === "You are verify.",
+    JSON.stringify(savedAgent));
+  const fullAgents = await (await fetch(s.url + "/api/agents?sessionId=" + encodeURIComponent(made.id) + "&full=1")).json();
+  ok("the full listing carries the editable system prompt",
+    fullAgents.ok && fullAgents.agents.some((a) => a.name === "verify-agent" && a.promptText === "You are verify." && a.source === "project"));
+  const delAgentRes = await fetch(s.url + "/api/agents/delete", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "verify-agent", scope: "project", root: dataDir }),
+  });
+  ok("POST /api/agents/delete removes it", delAgentRes.ok && (await delAgentRes.json()).ok === true);
+
   const bad = await fetch(s.url + "/api/nope");
   ok("unknown route 404s", bad.status === 404);
 } finally {

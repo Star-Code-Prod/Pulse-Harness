@@ -1149,7 +1149,9 @@ body.mode-chat #navProjects{display:none}
 .rdlg-b{display:flex;justify-content:flex-end;gap:8px}
 
 /* ================= MODEL PICKER ================= */
-.mp{padding:0;display:flex;flex-direction:column;max-height:min(70vh,520px);min-width:380px;animation:menuIn var(--t-fast) var(--ease)}
+.mp{padding:0;display:flex;flex-direction:column;width:300px;min-width:280px;max-width:340px;max-height:min(56vh,340px);animation:menuIn var(--t-fast) var(--ease)}
+.mp .mi{padding:6px 9px;font-size:12.5px}
+.mp .mi .sub{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mp-s{padding:var(--sp-2);border-bottom:1px solid var(--border);flex:none}
 /* Effort rides in the same dropdown as the model: pick both in one place. */
 .mp-eff{display:flex;align-items:center;gap:9px;padding:8px 10px;border-bottom:1px solid var(--border);flex:none}
@@ -1471,6 +1473,24 @@ html[data-embed] #splitBox{display:none !important}
 .projpop-add input{flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);outline:0;font-size:var(--fs-12)}
 .projpop-add input:focus{border-color:var(--brand-line)}
 .projpop-add .btn{height:32px}
+
+/* ---- agents settings ---- */
+.agents-set{display:grid;grid-template-columns:240px minmax(0,1fr);gap:20px;min-height:420px}
+.agents-list{display:flex;flex-direction:column;gap:2px;border-right:1px solid var(--border);padding-right:12px;overflow-y:auto;max-height:520px}
+.agent-new{justify-content:center;margin-bottom:6px}
+.agent-row{display:flex;flex-direction:column;gap:2px;width:100%;padding:8px 10px;border-radius:8px;text-align:left}
+.agent-row:hover{background:var(--hover)}
+.agent-row.on{background:var(--panel2)}
+.agent-row .an{font-size:13px;color:var(--text)}
+.agent-row .ad{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agents-editor{min-width:0}
+.agent-note{padding:12px 0;font-size:12.5px;line-height:1.65;color:var(--muted)}
+.agent-note b{color:var(--text2);font-weight:500}
+.agent-form .agent-prompt{min-height:220px;font-family:var(--font-mono);font-size:12px;line-height:1.6}
+@media(max-width:900px){
+  .agents-set{grid-template-columns:1fr}
+  .agents-list{border-right:0;border-bottom:1px solid var(--border);padding:0 0 12px;max-height:220px}
+}
 
 /* ---- routines page ---- */
 .routines-page{display:none;flex:1;min-height:0;flex-direction:column;padding:26px 28px 0;overflow:hidden;background:var(--bg)}
@@ -2119,10 +2139,14 @@ body:not(.rail) .sess.on{background:var(--panel2)}
 .cbox:focus-within{border-color:var(--border2)}
 .cwrap.dragover .cbox{border-color:var(--brand)}
 /* The bar is just +, the prompt and the send control; the other controls
-   sit right-aligned underneath, like the desktop app. */
-#cProj,#cAgent,#bigProj,#bigAgent{display:none}
-#cModel{order:1}#cMode{order:2}#cRing{order:3}
-#bigModel{order:1}#bigMode{order:2}
+   sit below it, with the agent on the left and model, effort, permission
+   and context right-aligned. */
+#cProj,#bigProj{display:none}
+#cAgent,#bigAgent{order:0}
+#cModel,#bigModel{order:1}
+#cEffort,#bigEffort{order:2}
+#cMode,#bigMode{order:3}
+#cRing{order:4}
 #cModelName,#bigModelName{font-family:var(--font-sans);font-weight:500;color:var(--text2)}
 #kbdHint[hidden],#bigSend[hidden]{display:none}
 .cbox .cbtn.ico{width:28px;height:28px;color:var(--text2)}
@@ -2510,7 +2534,8 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
           <button class="cbtn" id="bigMode">Ask permissions</button>
           <button class="cbtn" id="bigAgent" title="Agent persona for this turn">No agent</button>
           <span class="spacer"></span>
-          <button class="cbtn" id="bigModel"><span class="mono" id="bigModelName">—</span></button>
+          <button class="cbtn" id="bigModel" title="Model"><span class="mono" id="bigModelName">—</span></button>
+          <button class="cbtn" id="bigEffort" title="Reasoning effort">Medium</button>
         </div>
       </div>
       <div class="starters" id="startersCode">
@@ -2580,11 +2605,10 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
         <button class="cbtn" id="cMode">Ask permissions</button>
         <button class="cbtn" id="cAgent" title="Agent persona for this turn">No agent</button>
         <span class="spacer"></span>
-        <button class="cbtn" id="cModel" title="Model and reasoning effort">
+        <button class="cbtn" id="cModel" title="Model">
           <span class="mono" id="cModelName" style="font-size:12px">—</span>
-          <span style="color:var(--dim)">·</span>
-          <span id="cEffort" style="font-size:12px">—</span>
         </button>
+        <button class="cbtn" id="cEffort" title="Reasoning effort">Medium</button>
         <span class="ring" id="cRing">
           <svg width="17" height="17" viewBox="0 0 20 20" aria-hidden="true">
             <circle class="tr" cx="10" cy="10" r="7.5" fill="none" stroke-width="2.5"/>
@@ -2782,6 +2806,10 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
         <button data-s="session">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4.5 2.5v3.7M4.5 8.6v4.9M2.7 7.4h3.6M11.5 2.5v5.5M11.5 10v3.5M9.7 9h3.6"/></svg>
           Session
+        </button>
+        <button data-s="agents">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="5.4" r="2.7"/><path d="M3.2 13.4c.7-2.6 2.5-4 4.8-4s4.1 1.4 4.8 4"/></svg>
+          Agents
         </button>
         <button data-s="knowledge">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 2.5h7.5a2 2 0 012 2v9H5a2 2 0 01-2-2z"/><path d="M3 11.5a2 2 0 012-2h7.5"/></svg>
@@ -3269,7 +3297,9 @@ function updateChrome() {
   $("cProjName").title = r;
   $("cModelName").textContent = prov().model ? modelLabel(state.current, prov().model) : "—";
   $("bigModelName").textContent = prov().model ? modelLabel(state.current, prov().model) : "—";
-  $("cEffort").textContent = state.effort[0].toUpperCase() + state.effort.slice(1);
+  const effortLabel = state.effort[0].toUpperCase() + state.effort.slice(1);
+  $("cEffort").textContent = effortLabel;
+  $("bigEffort").textContent = effortLabel;
   const agentLabel = state.agent || "No agent";
   $("cAgent").textContent = agentLabel;
   $("cAgent").title = state.agent ? "Agent persona: " + state.agent : "Agent persona for this turn";
@@ -3483,6 +3513,20 @@ function chooseModel(pid, mid, label) {
   if (!$("settings").classList.contains("on")) focusComposer();
 }
 
+/** A tiny effort menu: Low / Medium / High, ticked on the current value. */
+function effortPicker(anchor) {
+  openMenu(anchor, EFFORTS.map((e) => ({
+    label: e[0].toUpperCase() + e.slice(1),
+    on: state.effort === e,
+    run: () => {
+      state.effort = e;
+      save();
+      updateChrome();
+      toast("Effort: " + e[0].toUpperCase() + e.slice(1));
+    },
+  })));
+}
+
 function moveMp(d) {
   if (!mpItems.length) return;
   mpSel = (mpSel + d + mpItems.length) % mpItems.length;
@@ -3530,29 +3574,12 @@ function renderModelPicker(menu) {
       </button>`;
     }).join("")).join("");
   menu.innerHTML = `
-    <div class="mp-eff">
-      <span class="mp-eff-l">Effort</span>
-      <div class="segbtn" id="mpEffort">
-        ${EFFORTS.map((e2) => `<button type="button" data-e="${esc(e2)}" title="Reasoning effort: ${esc(e2)}" aria-label="Reasoning effort: ${esc(e2)}" class="${e2 === state.effort ? "on" : ""}">${e2[0].toUpperCase() + e2.slice(1)}</button>`).join("")}
-      </div>
-      <span class="mp-eff-n">${["openai", "openrouter"].includes(state.current) ? "" : "used where the provider supports it"}</span>
-    </div>
     <div class="mp-s"><input class="inp" id="mpSearch" value="${esc(mpQuery)}" placeholder="Search models…" autocomplete="off"></div>
     <div class="mp-list">${listHtml || '<div class="pempty">No matches.</div>'}</div>
     <div class="mp-f">
       <button class="mi" id="mpConnect">Connect a provider…</button>
       <button class="mi" id="mpCustom">Custom model…</button>
     </div>`;
-  // Effort lives right here in the model dropdown: pick the model and how
-  // hard it should think in one place. The menu stays open; the composer
-  // chip updates underneath.
-  menu.querySelectorAll("#mpEffort button").forEach((b) => b.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    state.effort = b.dataset.e;
-    save();
-    updateChrome();
-    menu.querySelectorAll("#mpEffort button").forEach((x) => x.classList.toggle("on", x === b));
-  }));
   menu.querySelectorAll(".mi[data-i]").forEach(el => el.addEventListener("click", () => {
     const it = mpItems[+el.dataset.i];
     if (it) { closeMenus(); chooseModel(it.pid, it.mid, it.label); }
@@ -3577,14 +3604,14 @@ function renderModelPicker(menu) {
  *  space so the header and search field can never be cut off. */
 function fitPickerMenu(menu, anchor) {
   const r = anchor.getBoundingClientRect();
-  menu.style.minWidth = Math.min(380, innerWidth - 16) + "px";
+  menu.style.minWidth = Math.min(280, innerWidth - 16) + "px";
   const w = menu.offsetWidth;
   menu.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + "px";
   // Never cover the title bar (and its window controls) when opening upward.
   const chromeTop = document.querySelector(".titlebar") ? 52 : 0;
   const above = Math.max(0, r.top - chromeTop - 8);
   const below = Math.max(0, innerHeight - r.bottom - 8);
-  const cap = Math.min(520, innerHeight * 0.7);
+  const cap = Math.min(340, innerHeight * 0.7);
   menu.style.maxHeight = "none";
   const h = menu.offsetHeight;
   if (h > above && below > above) {
@@ -3704,7 +3731,6 @@ function agentRowBits(a) {
   const desc = String(a.description || "").replace(/\s+/g, " ").trim();
   const bits = [];
   if (a.source === "builtin") bits.push("built-in");
-  if (a.model) bits.push(a.model);
   if (desc) bits.push(desc.length > 56 ? desc.slice(0, 53) + "..." : desc);
   return bits.join(" · ");
 }
@@ -3733,13 +3759,16 @@ function renderAgentPicker(menu) {
   menu.innerHTML = `
     <div class="mp-s"><input class="inp" id="apSearch" value="${esc(apQuery)}" placeholder="Search agents…" autocomplete="off"></div>
     <div class="mp-list">${rows || '<div class="pempty">No matches.</div>'}</div>
-    ${problems}`;
+    ${problems}
+    <div class="mp-f"><button class="mi" id="apEdit">Edit agent prompts…</button></div>`;
   menu.querySelectorAll(".mi[data-i]").forEach((el) => el.addEventListener("click", (ev) => {
     ev.stopPropagation();
     const it = apItems[Number(el.dataset.i)];
     closeMenus();
     if (it) selectAgent(it.agent ? it.agent.name : "");
   }));
+  const edit = menu.querySelector("#apEdit");
+  if (edit) edit.addEventListener("click", () => { closeMenus(); openSettings("agents"); });
 }
 
 function moveAp(d) {
@@ -3762,6 +3791,8 @@ $("cMode").addEventListener("click", e => { e.stopPropagation(); modeMenu($("cMo
 $("bigMode").addEventListener("click", e => { e.stopPropagation(); modeMenu($("bigMode")); });
 $("cModel").addEventListener("click", e => { e.stopPropagation(); modelPicker($("cModel")); });
 $("bigModel").addEventListener("click", e => { e.stopPropagation(); modelPicker($("bigModel")); });
+$("cEffort").addEventListener("click", e => { e.stopPropagation(); effortPicker($("cEffort")); });
+$("bigEffort").addEventListener("click", e => { e.stopPropagation(); effortPicker($("bigEffort")); });
 $("cAgent").addEventListener("click", e => { e.stopPropagation(); agentPicker($("cAgent")); });
 $("bigAgent").addEventListener("click", e => { e.stopPropagation(); agentPicker($("bigAgent")); });
 
@@ -10067,6 +10098,7 @@ function renderSettings() {
   if (settingsSection === "providers") host.innerHTML = settingsProviders();
   else if (settingsSection === "appearance") host.innerHTML = settingsAppearance();
   else if (settingsSection === "session") host.innerHTML = settingsSession();
+  else if (settingsSection === "agents") { host.innerHTML = settingsAgents(); renderAgentsSettings(); }
   else if (settingsSection === "knowledge") host.innerHTML = settingsKnowledge();
   else if (settingsSection === "routines") host.innerHTML = settingsRoutines();
   else if (settingsSection === "mcp") host.innerHTML = settingsMcp();
@@ -10431,6 +10463,125 @@ function settingsProviderDetail(id) {
     </div>
     <button class="btn sm" id="fBack">← All providers</button>
   </div>`;
+}
+
+/* ---- agents: persona prompts ---- */
+let agentSettings = { items: [], selected: "", creating: false, root: "" };
+function settingsAgents() {
+  return `
+  <div class="sect">
+    <h2 class="h">Agents</h2>
+    <p class="sh">Personas put a system prompt in front of a session's normal prompt. Pick one from the composer, or write your own here - the same files live in <span class="mono">.star-code/agents/</span> (project) and <span class="mono">~/.star-code/agents/</span> (user).</p>
+    <div class="agents-set">
+      <div class="agents-list" id="agentsList">Loading…</div>
+      <div class="agents-editor" id="agentsEditor"></div>
+    </div>
+  </div>`;
+}
+async function renderAgentsSettings() {
+  const list = $("agentsList");
+  if (!list) return;
+  const params = sessionId ? "?sessionId=" + encodeURIComponent(sessionId) + "&full=1" : "?kind=code&full=1";
+  try {
+    const j = await fetchJSON("/api/agents" + params);
+    agentSettings.items = Array.isArray(j.agents) ? j.agents : [];
+    agentSettings.root = j.root || state.root || "";
+  } catch (e) {
+    list.innerHTML = `<div class="rpage-empty"><b>Could not load agents</b>${esc(e.message || "")}</div>`;
+    return;
+  }
+  if (!agentSettings.selected && !agentSettings.creating && agentSettings.items.length) {
+    const first = agentSettings.items.find((a) => a.source !== "builtin") || agentSettings.items[0];
+    agentSettings.selected = first.name;
+  }
+  renderAgentSettingsList();
+  renderAgentSettingsEditor();
+}
+function renderAgentSettingsList() {
+  const list = $("agentsList");
+  if (!list) return;
+  const rows = agentSettings.items.map((a) => `<button class="agent-row${a.name === agentSettings.selected && !agentSettings.creating ? " on" : ""}" data-agent="${esc(a.name)}">
+      <span class="an">${esc(a.name)}</span>
+      <span class="ad">${esc(a.description || a.source || "")}</span>
+    </button>`).join("");
+  list.innerHTML = `<button class="btn sm agent-new" id="agentNew">+ New agent</button>${rows || '<div class="agent-note">No agents yet.</div>'}`;
+  const add = $("agentNew"); if (add) add.addEventListener("click", () => { agentSettings.creating = true; agentSettings.selected = ""; renderAgentSettingsList(); renderAgentSettingsEditor(); });
+  list.querySelectorAll("[data-agent]").forEach((b) => b.addEventListener("click", () => {
+    agentSettings.creating = false;
+    agentSettings.selected = b.dataset.agent;
+    renderAgentSettingsList();
+    renderAgentSettingsEditor();
+  }));
+}
+function renderAgentSettingsEditor() {
+  const host = $("agentsEditor");
+  if (!host) return;
+  const draft = agentSettings.creating ? null : agentSettings.items.find((a) => a.name === agentSettings.selected) || null;
+  if (!draft && !agentSettings.creating) {
+    host.innerHTML = '<div class="agent-note">Select an agent to edit its system prompt.</div>';
+    return;
+  }
+  const isNew = !draft;
+  if (draft && draft.source === "builtin") {
+    host.innerHTML = `<div class="agent-note"><b>${esc(draft.name)}</b> is the built-in explorer. It has no editable prompt - create a custom agent to write one.<br><button class="btn pri sm" id="agentCopy">Create a custom agent</button></div>`;
+    $("agentCopy").addEventListener("click", () => { agentSettings.creating = true; agentSettings.selected = ""; renderAgentSettingsList(); renderAgentSettingsEditor(); });
+    return;
+  }
+  const a = draft || { name: "", description: "", promptText: "", source: "project" };
+  host.innerHTML = `
+    <div class="red-h"><h2>${isNew ? "New agent" : esc(a.name)}</h2></div>
+    <form class="routine-form agent-form" id="agentForm">
+      <label>Name<input id="agentName" type="text" value="${esc(a.name)}" placeholder="reviewer" autocomplete="off"${isNew ? "" : " disabled"}></label>
+      <label>Description<input id="agentDesc" type="text" value="${esc(a.description || "")}" placeholder="Reviews a change for bugs and risks" autocomplete="off"></label>
+      <label>System prompt<textarea id="agentPrompt" class="agent-prompt" spellcheck="false" placeholder="You are a meticulous reviewer. …">${esc(a.promptText || "")}</textarea></label>
+      <div class="routine-hint">Prompt only - the session's tools and model apply.${isNew ? ' Saved to this project\'s <span class="mono" style="white-space:nowrap">.star-code/agents/</span>.' : ""}</div>
+      <div class="routine-actions">
+        ${isNew ? "" : '<button class="btn dgr sm" type="button" id="agentDelete">Delete</button>'}
+        <span class="spacer"></span>
+        <button class="btn pri sm" type="submit">${isNew ? "Create agent" : "Save prompt"}</button>
+      </div>
+    </form>`;
+  $("agentForm").addEventListener("submit", (e) => { e.preventDefault(); saveAgentSettings(isNew, a); });
+  if (!isNew) $("agentDelete").addEventListener("click", () => deleteAgentSettings(a));
+}
+async function saveAgentSettings(isNew, draft) {
+  const name = $("agentName").value.trim();
+  if (!name) { toast("Give the agent a name."); return; }
+  const scope = isNew ? "project" : (draft.source === "user" ? "user" : "project");
+  try {
+    const j = await fetchJSON("/api/agents", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        description: $("agentDesc").value.trim(),
+        prompt: $("agentPrompt").value,
+        scope,
+        root: agentSettings.root || state.root || "",
+      }),
+    });
+    if (!j.ok) throw new Error(j.error || "could not save the agent");
+    agentSettings.creating = false;
+    agentSettings.selected = (j.agent && j.agent.name) || name;
+    toast("Agent saved");
+    await renderAgentsSettings();
+  } catch (e) {
+    toast("Could not save the agent: " + e.message);
+  }
+}
+async function deleteAgentSettings(a) {
+  if (!confirm("Delete agent \"" + a.name + "\"?")) return;
+  try {
+    const j = await fetchJSON("/api/agents/delete", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: a.name, scope: a.source === "user" ? "user" : "project", root: agentSettings.root || state.root || "" }),
+    });
+    if (!j.ok) throw new Error(j.error || "could not delete the agent");
+    agentSettings.selected = "";
+    toast("Agent deleted");
+    await renderAgentsSettings();
+  } catch (e) {
+    toast("Could not delete the agent: " + e.message);
+  }
 }
 
 function settingsRoutines() {

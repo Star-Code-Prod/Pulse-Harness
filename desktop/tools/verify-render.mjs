@@ -335,8 +335,9 @@ ok("a cut-off turn continues when its session opens",
   js.includes("message: resume ? undefined : message"));
 ok("the activity word tells the truth about reasoning models",
   js.includes("writing the reply") && fnBody("async function sendToAgent(").includes("reasoner"));
-ok("effort lives in the model dropdown",
-  js.includes('id="mpEffort"') && js.includes("Reasoning effort: ") && /\.mp-eff\{/.test(html.replace(/\s+/g, "")));
+ok("effort has its own control",
+  html.includes('id="cEffort"') && html.includes('id="bigEffort"') &&
+  js.includes("function effortPicker(") && !js.includes('id="mpEffort"'));
 ok("the motion scrub is styled, not the platform gray rail",
   /\.mo-scrub::-webkit-slider-thumb\{/.test(html.replace(/\s+/g, "")) &&
   js.includes('--p') && html.includes("linear-gradient(90deg,var(--accent) var(--p"));
@@ -708,9 +709,22 @@ ok("the landing prompt box matches the session bar",
 ok("the prompt surface wraps only the input row",
   html.includes(".bigbox,.cwrap{background:transparent") &&
   html.includes(".cbox{background:var(--panel)"));
-ok("the controls row is right-aligned as model, permission, ring",
-  html.includes("#cModel{order:1}#cMode{order:2}#cRing{order:3}") &&
-  html.includes("#cProj,#cAgent,#bigProj,#bigAgent{display:none}"));
+ok("the controls row is agent, then model, effort, permission, ring",
+  html.includes("#cAgent,#bigAgent{order:0}") &&
+  html.includes("#cModel,#bigModel{order:1}") &&
+  html.includes("#cEffort,#bigEffort{order:2}") &&
+  html.includes("#cMode,#bigMode{order:3}") &&
+  html.includes("#cRing{order:4}") &&
+  html.includes("#cProj,#bigProj{display:none}"));
+ok("the model and agent picker is compact",
+  html.includes(".mp{padding:0;display:flex;flex-direction:column;width:300px") &&
+  js.includes("Math.min(280") && js.includes("Math.min(340"));
+ok("agents are edited as prompt-only personas",
+  js.includes('id="agentPrompt"') && !js.includes('id="agentTools"') &&
+  !js.includes('id="agentModel"') && !js.includes('id="agentScope"'));
+ok("the agent editor lives in Settings and the agent picker links to it",
+  html.includes('data-s="agents"') && js.includes("function settingsAgents(") &&
+  js.includes('openSettings("agents")') && js.includes("/api/agents/delete"));
 ok("the send appears only when there is something to send",
   html.includes('id="kbdHint" type="button" title="Send" aria-label="Send message" hidden') &&
   js.includes("function syncComposerSend(") && js.includes("hidden = !typed && !streaming"));

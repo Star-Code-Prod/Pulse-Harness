@@ -23,7 +23,7 @@ import { schedulesDue, scheduleAdvance, routinesDue, claimRoutine, finishRoutine
 // Custom agents ("personas"): the same files the task tool resolves. The
 // desktop lists them for the agent picker, and a chat request may name one as
 // the turn's agent - never wider than the session itself.
-import { listAgentsWithProblems, getAgent, AGENT_DEFAULT_TOOLS, BUILTIN_EXPLORER } from "./lib/agents.js";
+import { listAgentsWithProblems, getAgent, saveAgent, deleteAgent, AGENT_DEFAULT_TOOLS, BUILTIN_EXPLORER } from "./lib/agents.js";
 // Settings import from a local opencode install (Settings > Import). The
 // module owns the whole scan/apply contract; the endpoint below is its only
 // caller, and the report it returns never carries credentials.
@@ -1098,15 +1098,45 @@ async function route(req, res) {
       ? sessionRoot(session)
       : (wantedKind === "chat" ? os.homedir() : ROOT);
     const { agents, problems } = listAgentsWithProblems(listingRoot);
+    const full = url.searchParams.get("full") === "1";
+    const entry = (a, source) => full
+      ? { ...agentListingEntry(a, source), promptText: a.promptText || "", file: a.file || null }
+      : agentListingEntry(a, source);
     const out = {
       ok: true,
-      agents: [
-        agentListingEntry(BUILTIN_EXPLORER, BUILTIN_EXPLORER.source),
-        ...agents.map((a) => agentListingEntry(a, a.source)),
-      ],
+      root: listingRoot,
+      agents: [entry(BUILTIN_EXPLORER, BUILTIN_EXPLORER.source), ...agents.map((a) => entry(a, a.source))],
     };
     if (problems.length) out.problems = problems;
     return sendJSON(res, 200, out);
+  }
+  if (req.method === "POST" && url.pathname === "/api/agents") {
+    const body = await readBody(req);
+    const root = body.root ? path.resolve(String(body.root)) : ROOT;
+    const result = saveAgent(root, {
+      name: body.name,
+      description: body.description,
+      tools: body.tools,
+      model: body.model,
+      promptText: body.prompt,
+      scope: body.scope === "user" ? "user" : "project",
+    });
+    if (!result.ok) return sendJSON(res, 400, { ok: false, error: result.error });
+    const saved = getAgent(root, body.name);
+    return sendJSON(res, 200, {
+      ok: true,
+      agent: saved ? {
+        name: saved.name, description: saved.description, source: saved.source, file: saved.file,
+        tools: saved.tools, model: saved.model, promptText: saved.promptText,
+      } : null,
+    });
+  }
+  if (req.method === "POST" && url.pathname === "/api/agents/delete") {
+    const body = await readBody(req);
+    const root = body.root ? path.resolve(String(body.root)) : ROOT;
+    const result = deleteAgent(root, { name: body.name, scope: body.scope === "user" ? "user" : "project" });
+    if (!result.ok) return sendJSON(res, 400, { ok: false, error: result.error });
+    return sendJSON(res, 200, { ok: true });
   }
 
   /* --------------------------------- mcp --------------------------------- */
