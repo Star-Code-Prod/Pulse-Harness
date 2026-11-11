@@ -1323,7 +1323,7 @@ export async function runAgentTurn({
       return;
     }
 
-    const { text, calls, todos } = parseAssistantContent(full);
+    let { text, calls, todos } = parseAssistantContent(full);
     if (full.trim()) messages.push({ role: "assistant", content: full });
 
     if (todos) emit({ type: "todos", todos });
