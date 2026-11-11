@@ -986,7 +986,7 @@ body.mode-chat #navProjects{display:none}
 }
 .cwrap:focus-within{border-color:color-mix(in srgb,var(--brand) 60%,var(--border))}
 .cbox{
-  display:flex;align-items:flex-end;gap:4px;padding:0;border-radius:0;
+  display:flex;align-items:flex-end;gap:4px;padding:0 2px 2px;border-radius:0;
   background:transparent;border:0;box-shadow:none;
   transition:none;
 }
@@ -2062,7 +2062,9 @@ body:not(.rail) .sb-nav-row.on svg,body:not(.rail) .sb-nav-row:hover svg{color:v
 .cbtn.send{background:transparent;color:var(--text);margin-left:5px}
 .cbtn.send:hover{background:var(--hover);color:var(--text)}
 #kbdHint{margin-left:4px}
-@media(max-width:560px){#cPanels{display:none}}
+#cProj{min-width:0}
+#cProjName{min-width:0;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:560px){#cProjName{max-width:72px}}
 .msg-u .b{background:var(--panel2)}
 body:not(.rail) .sess.on{background:var(--panel)}
 body:not(.rail) .sess.on::before{background:var(--text2)}
@@ -2475,7 +2477,15 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
       <h1 id="landingTitle">What can I help with?</h1>
       <p class="lsub">Ask anything, or drop a file here to work on it.</p>
       <div class="bigbox">
-        <textarea id="bigInput" rows="2" placeholder="Ask Pulse anything" aria-label="Ask Pulse anything"></textarea>
+        <div class="cbox">
+          <button class="cbtn ico" id="bigPlus" type="button" title="Attach a file or run a shell command" aria-label="More actions">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg>
+          </button>
+          <textarea id="bigInput" rows="2" placeholder="Type / for commands" aria-label="Message Pulse Harness"></textarea>
+          <button class="cbtn send" id="bigSend" title="Send" aria-label="Send message">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5V2.8M3.2 7.6L8 2.8l4.8 4.8"/></svg>
+          </button>
+        </div>
         <div class="crow">
           <button class="cbtn" id="bigProj" title="Working directory">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M1.8 4.5A1.5 1.5 0 013.3 3h2.4l1.3 1.6h5.7a1.5 1.5 0 011.5 1.5v5.4a1.5 1.5 0 01-1.5 1.5H3.3a1.5 1.5 0 01-1.5-1.5z"/></svg>
@@ -2485,9 +2495,6 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
           <button class="cbtn" id="bigAgent" title="Agent persona for this turn">No agent</button>
           <span class="spacer"></span>
           <button class="cbtn" id="bigModel"><span class="mono" id="bigModelName">—</span></button>
-          <button class="cbtn send" id="bigSend" title="Send" aria-label="Send message">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5V2.8M3.2 7.6L8 2.8l4.8 4.8"/></svg>
-          </button>
         </div>
       </div>
       <div class="starters" id="startersCode">
@@ -2540,20 +2547,22 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v10M3.5 8.5L8 13l4.5-4.5"/></svg>
       </button>
       <div class="cbox">
+        <button class="cbtn ico" id="cPlus" type="button" title="Attach a file, run a command, open panes, export or start a new session" aria-label="More actions">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg>
+        </button>
         <textarea id="input" rows="1" placeholder="Type / for commands" aria-label="Message Pulse Harness"></textarea>
+        <button class="kbdh" id="kbdHint" type="button" title="Send" aria-label="Send message">
+          <svg class="ic-send" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5V2.8M3.2 7.6L8 2.8l4.8 4.8"/></svg>
+          <svg class="ic-stop" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="2" fill="currentColor"/></svg>
+        </button>
       </div>
       <div class="crow">
-        <button class="cbtn ico" id="cPlus" type="button" title="More: side chat, attach a file, shell command, export, new session" aria-label="More actions">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg>
+        <button class="cbtn" id="cProj" type="button" title="Working folder">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M1.8 4.5A1.5 1.5 0 013.3 3h2.4l1.3 1.6h5.7a1.5 1.5 0 011.5 1.5v5.4a1.5 1.5 0 01-1.5 1.5H3.3a1.5 1.5 0 01-1.5-1.5z"/></svg>
+          <span class="mono" id="cProjName">—</span>
         </button>
         <button class="cbtn" id="cMode">Ask permissions</button>
         <button class="cbtn" id="cAgent" title="Agent persona for this turn">No agent</button>
-        <button class="cbtn ico" id="cPanels" title="Add pane" aria-label="Add a pane">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M8 6.2v5.1M5.45 8.75h5.1"/></svg>
-        </button>
-        <button class="cbtn ico" id="cShell" title="Shell mode" aria-label="Shell mode">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 5.5l3 3-3 3M8.5 12h4.5"/></svg>
-        </button>
         <span class="spacer"></span>
         <button class="cbtn" id="cModel" title="Model and reasoning effort">
           <span class="mono" id="cModelName" style="font-size:12px">—</span>
@@ -2568,10 +2577,6 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
           </svg>
           <span class="tip" id="ringTip">Context —</span>
         </span>
-        <button class="kbdh" id="kbdHint" type="button" title="Send" aria-label="Send message">
-          <svg class="ic-send" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5V2.8M3.2 7.6L8 2.8l4.8 4.8"/></svg>
-          <svg class="ic-stop" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="2" fill="currentColor"/></svg>
-        </button>
       </div>
       <div class="workbar" id="workBar" role="status" aria-live="polite">
         <span class="wdot" aria-hidden="true"></span>
@@ -3244,6 +3249,8 @@ function updateChrome() {
   $("sProj").textContent = base;
   $("sProj").title = r;
   $("bigProjName").textContent = base;
+  $("cProjName").textContent = base;
+  $("cProjName").title = r;
   $("cModelName").textContent = prov().model ? modelLabel(state.current, prov().model) : "—";
   $("bigModelName").textContent = prov().model ? modelLabel(state.current, prov().model) : "—";
   $("cEffort").textContent = state.effort[0].toUpperCase() + state.effort.slice(1);
@@ -3353,13 +3360,13 @@ const UI_COPY = {
     title: "What can I help with?",
     sub: "Ask anything, or drop a file here to work on it.",
     placeholder: "Message Pulse…",
-    bigPlaceholder: "Ask anything",
+    bigPlaceholder: "Type / for commands",
   },
   chat: {
     title: "What can I help with?",
     sub: "Ask anything, or drop a file here to work on it.",
     placeholder: "Message Pulse…",
-    bigPlaceholder: "Ask anything",
+    bigPlaceholder: "Type / for commands",
   },
 };
 
@@ -3942,7 +3949,6 @@ function wirePanes() {
   applyActivePane();
   renderPaneTabs();
 }
-$("cPanels").addEventListener("click", e => { e.stopPropagation(); paneMenu($("cPanels")); });
 
 /* ---- session rename dialog ---- */
 let renamingId = null;
@@ -9680,7 +9686,11 @@ async function attachPick() {
   if (bridge && bridge.pickFile) {
     let p = null;
     try { p = await bridge.pickFile(); } catch { /* picker failed */ }
-    if (p) { attachFiles.push(p); renderAttach(); $("input").focus(); }
+    if (p) {
+      attachFiles.push(p); renderAttach();
+      if ($("composer").style.display === "none") toast("Attached — it will be sent with your first message");
+      else $("input").focus();
+    }
     return;
   }
   // Browser fallback: a real file input; the page cannot see the full path.
@@ -9691,7 +9701,12 @@ async function attachPick() {
   document.body.appendChild(inp);
   inp.addEventListener("change", () => {
     const f = inp.files && inp.files[0];
-    if (f) { attachFiles.push(f.name); renderAttach(); toast("Attached " + f.name + " (full path needs the desktop app)"); }
+    if (f) {
+      attachFiles.push(f.name); renderAttach();
+      toast($("composer").style.display === "none"
+        ? "Attached " + f.name + " — it will be sent with your first message"
+        : "Attached " + f.name + " (full path needs the desktop app)");
+    }
     inp.remove();
   });
   inp.click();
@@ -9703,12 +9718,20 @@ $("cPlus").addEventListener("click", e => {
     { label: "Side chat", run: () => openSideChat() },
     { label: "Attach file", run: attachPick },
     { label: "Run shell command", k: "!", run: () => { $("input").value = "! "; $("input").focus(); } },
+    { label: "Open a pane", run: () => paneMenu($("cPlus")) },
     { sep: true },
     { label: "Export conversation", run: exportConv },
     { label: "New session", k: "⌘N", run: newSession },
   ]);
 });
-$("cShell").addEventListener("click", () => { $("input").value = "! "; $("input").focus(); });
+$("bigPlus").addEventListener("click", e => {
+  e.stopPropagation();
+  openMenu($("bigPlus"), [
+    { label: "Attach file", run: attachPick },
+    { label: "Run shell command", k: "!", run: () => { $("bigInput").value = "! "; $("bigInput").focus(); } },
+  ]);
+});
+$("cProj").addEventListener("click", () => openProjects());
 $("bigSend").addEventListener("click", () => {
   const v = $("bigInput").value.trim(); if (!v) return;
   $("bigInput").value = ""; sendToAgent(v);

@@ -695,9 +695,16 @@ ok("the sidebar sorts itself into Needs input / Working / Completed",
 ok("the suggestion card can start the session",
   js.includes("function renderSuggest(") && js.includes('case "session_suggestion": renderSuggest(evt);') &&
   js.includes('"[data-start]")') && js.includes("sendToAgent(msg)") && js.includes('"[data-here]")'));
-ok("the session send control sits in the bottom toolbar",
-  html.indexOf('id="cRing"') < html.indexOf('id="kbdHint"') &&
-  html.indexOf('id="input"') < html.indexOf('id="cPlus"'));
+ok("the send control sits inside the prompt box",
+  html.indexOf('id="cPlus"') < html.indexOf('id="input"') &&
+  html.indexOf('id="input"') < html.indexOf('id="kbdHint"') &&
+  html.indexOf('id="kbdHint"') < html.indexOf('id="cProj"'));
+ok("the row under the prompt carries project, permission, agent and model",
+  html.indexOf('id="cProj"') < html.indexOf('id="cMode"') &&
+  html.indexOf('id="cAgent"') < html.indexOf('id="cModel"'));
+ok("the landing prompt box matches the session bar",
+  html.indexOf('id="bigPlus"') < html.indexOf('id="bigInput"') &&
+  html.indexOf('id="bigInput"') < html.indexOf('id="bigSend"'));
 ok("the send icon survives the streaming state",
   js.includes('btn.classList.toggle("stop"') && !js.includes('btn.textContent = on ? "■"'));
 ok("the stop control is borderless and keeps its square icon",
