@@ -19,7 +19,7 @@ import { readAuth, writeAuthEntry, removeAuthEntry, resolveKey, mask } from "./l
 import { readConfig, writeLastModel, readSeenVersion, writeSeenVersion } from "./lib/config.js";
 import { listKnowledge, readKnowledgeFile, saveKnowledgeFile, deleteKnowledgeFile, knowledgeDir } from "./lib/knowledge.js";
 import { createToolRunner, readProjectMemory, readProjectConfig, activeProcesses, killProcess, TOOL_SPECS } from "./lib/tools.js";
-import { schedulesDue, scheduleAdvance } from "./lib/extras.js";
+import { schedulesDue, scheduleAdvance, routinesDue, claimRoutine, finishRoutine, applyRoutineOp, readRoutines } from "./lib/extras.js";
 // Custom agents ("personas"): the same files the task tool resolves. The
 // desktop lists them for the agent picker, and a chat request may name one as
 // the turn's agent - never wider than the session itself.
@@ -433,6 +433,7 @@ function loadStore() {
             uiLog: Array.isArray(s.uiLog) ? s.uiLog : [],
             aborts: new Set(),
             autoAllow: new Set(),
+            routine: s.routine || null,
           };
           if (!isEmptyUntitled(loaded)) sessions.set(s.id, loaded);
         }
@@ -476,6 +477,7 @@ function writeStoreNow() {
           messages,
           uiLog,
           stats: s.stats || emptyStats(),
+          routine: s.routine || null,
         };
       });
     // Atomic: write a temp file, then rename, so a crash or a second
@@ -526,6 +528,9 @@ function summarise(s) {
     created: s.created,
     updated: s.updated,
     turns,
+    // Routine runs are ordinary sessions with a marker, so the sidebar can
+    // tag them and the run history can link back.
+    routine: s.routine || null,
     // A turn was in flight when the app last died: the next start continues it.
     pending: !!s.activeTurn,
     // The sidebar auto-sorts with these: a live turn sits under "Working",
@@ -592,6 +597,7 @@ function newSession(title, kind, opts = {}) {
     uiLog: [],
     aborts: new Set(),
     autoAllow: new Set(),
+    routine: opts.routine || null,
   };
   if (opts.worktree) {
     const wt = createWorktree(s.cwd, sid);
@@ -1492,6 +1498,47 @@ async function route(req, res) {
     }
   }
 
+  /* ------------------------------ routines ------------------------------ */
+  // The UI and the agent's `schedule` tool share one v2 store per project.
+  if (req.method === "GET" && url.pathname === "/api/routines") {
+    try {
+      const all = url.searchParams.get("all") === "1";
+      const one = String(url.searchParams.get("root") || "").trim();
+      const roots = all ? knownRoots() : [one ? path.resolve(one) : ROOT];
+      const routines = [];
+      for (const r of roots) {
+        for (const t of await readRoutines(r)) routines.push({ ...t, root: r });
+      }
+      return sendJSON(res, 200, { ok: true, roots, routines });
+    } catch (e) {
+      return sendJSON(res, 500, { ok: false, error: e.message, routines: [] });
+    }
+  }
+  if (req.method === "POST" && url.pathname === "/api/routines") {
+    const body = await readBody(req);
+    const root = body.root ? path.resolve(String(body.root)) : ROOT;
+    try {
+      rememberRoutineRoot(root);
+      if (String(body.action || "") === "run") {
+        // Claim synchronously, then run in the background: the UI gets an
+        // immediate answer and the minute timer can never double-run it.
+        const claim = await claimRoutine(root, String(body.id || ""), "manual");
+        if (!claim) return sendJSON(res, 400, { ok: false, error: "that routine is already running or does not exist" });
+        runRoutine(claim.task, root, { trigger: "manual", runId: claim.runId, late: false }).catch(() => {});
+        return sendJSON(res, 200, { ok: true, routine: claim.task, sessionId: "", status: "queued" });
+      }
+      const out = await applyRoutineOp(root, body);
+      if (!out.ok) return sendJSON(res, 400, { ok: false, error: out.error });
+      return sendJSON(res, 200, {
+        ok: true, root,
+        routine: out.routine || null,
+        routines: out.routine ? undefined : (out.tasks || []),
+      });
+    } catch (e) {
+      return sendJSON(res, 500, { ok: false, error: e.message });
+    }
+  }
+
   // Recurring work: the app asks what is due, then runs it and advances the clock.
   if (req.method === "GET" && url.pathname === "/api/schedules") {
     try {
@@ -1884,9 +1931,39 @@ process.on("uncaughtException", (e) => {
  * Start the local server. Returns { port, url, close }.
  * `root` overrides the working directory the agent operates on.
  */
-/** Run one due schedule without a browser: a fresh code session in safe Plan
- *  mode, so a scheduled prompt can never widen its own permissions. */
-async function runScheduledHeadless(task) {
+/** The project folders the UI has created routines in, kept across launches
+ *  so a routine still fires after the app restarts on another project. */
+function routineRootsFile() {
+  return path.join(path.dirname(STORE_FILE), "routine-roots.json");
+}
+function rememberedRoutineRoots() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(routineRootsFile(), "utf8"));
+    return Array.isArray(raw.roots) ? raw.roots.map(String).filter(Boolean) : [];
+  } catch { return []; }
+}
+function rememberRoutineRoot(root) {
+  const r = path.resolve(root);
+  const roots = new Set(rememberedRoutineRoots());
+  if (roots.has(r)) return;
+  roots.add(r);
+  try {
+    fs.mkdirSync(path.dirname(routineRootsFile()), { recursive: true });
+    fs.writeFileSync(routineRootsFile(), JSON.stringify({ roots: [...roots] }, null, 1));
+  } catch { /* remembering is best-effort */ }
+}
+
+/** Project roots a routine may run in: the server root, every code session's
+ *  folder, and every folder the UI registered a routine in. */
+function knownRoots() {
+  const roots = new Set([ROOT, ...rememberedRoutineRoots()]);
+  for (const s of sessions.values()) {
+    if (s.kind !== "chat" && s.cwd) roots.add(s.cwd);
+  }
+  return [...roots].filter((r) => { try { return fs.existsSync(r); } catch { return false; } });
+}
+
+function routineTarget() {
   let provider = "", model = "", key = "";
   try {
     const last = readConfig().lastModel || {};
@@ -1901,44 +1978,91 @@ async function runScheduledHeadless(task) {
   } else {
     key = resolveKey(provider, "", (PROVIDERS[provider] && PROVIDERS[provider].envKeys) || []);
   }
-  if (!provider || !key) return false;
-  const s = newSession("Scheduled: " + task.title, "code");
-  s.mode = "plan";
+  if (!provider || !key) return null;
+  return {
+    provider, key,
+    model: model || (PROVIDERS[provider] && PROVIDERS[provider].defaultModel) || "",
+    baseUrl: (readAuth().providers[provider] || {}).baseUrl || undefined,
+  };
+}
+
+/** Run one claimed routine in a fresh session. Read-only unless the routine
+ *  explicitly allows writes and commands. */
+async function runRoutine(task, root, { trigger = "schedule", runId = "", late = false } = {}) {
+  const target = routineTarget();
+  if (!target) {
+    await finishRoutine(root, task.id, runId, { status: "skipped", error: "no provider key" });
+    return { status: "skipped", sessionId: "" };
+  }
+  const allow = task.allowTools === true;
+  const s = newSession("Routine: " + task.title, "code", {
+    cwd: root,
+    routine: { id: task.id, title: task.title, runId, late: !!late, trigger },
+  });
+  s.mode = allow ? "manual" : "plan";
   s.messages[0] = { role: "system", content: sessionSystemContent(s) };
   s.messages.push({ role: "user", content: task.prompt });
   s.activeTurn = Date.now();
   persist();
+  const beforeAssistant = s.messages.filter((m) => m.role === "assistant").length;
+  const controller = { abort: false };
+  s.aborts.add(controller);
+  let doneText = "";
+  // A provider that never answers must not leave the routine "Running"
+  // forever: the watchdog aborts the turn, and the finally still settles it.
+  const watchdog = setTimeout(() => { controller.abort = true; }, 10 * 60_000);
+  if (watchdog.unref) watchdog.unref();
   try {
     await agentLib.runAgentTurn({
-      provider, model: model || (PROVIDERS[provider] && PROVIDERS[provider].defaultModel) || "",
-      apiKey: key,
-      baseUrl: (readAuth().providers[provider] || {}).baseUrl || undefined,
+      provider: target.provider, model: target.model, apiKey: target.key, baseUrl: target.baseUrl,
       messages: s.messages, runner: sessionRunner(s),
-      emit: () => {}, requestPermission: async () => ({ allowed: false, scope: "once" }),
-      mode: "plan", autoAllow: new Set(),
+      emit: (e) => { if (e && e.type === "done" && typeof e.text === "string") doneText = e.text; },
+      requestPermission: async () => ({ allowed: allow, scope: "once" }),
+      mode: allow ? "manual" : "plan", autoAllow: new Set(), controller,
     });
+    // A reply that streamed only a note is still worth keeping in the run.
+    if (s.messages.filter((m) => m.role === "assistant").length === beforeAssistant &&
+        doneText && doneText !== "(Stopped)") {
+      s.messages.push({ role: "assistant", content: doneText });
+    }
+    const answered = s.messages.filter((m) => m.role === "assistant").length > beforeAssistant;
+    const status = answered ? (late ? "late" : "ok") : "error";
+    await finishRoutine(root, task.id, runId, {
+      status, sessionId: s.id,
+      error: answered ? "" : (controller.abort ? "the run timed out" : "the model returned no answer"),
+    });
+    return { status, sessionId: s.id };
   } catch (e) {
-    s.messages.push({ role: "assistant", content: "Scheduled run failed: " + e.message });
+    s.messages.push({ role: "assistant", content: "Routine failed: " + e.message });
+    await finishRoutine(root, task.id, runId, { status: "error", error: e.message, sessionId: s.id });
+    return { status: "error", sessionId: s.id };
   } finally {
+    clearTimeout(watchdog);
+    s.aborts.delete(controller);
     s.activeTurn = 0;
     s.updated = Date.now();
     persist();
   }
-  return true;
 }
 
-async function runDueSchedulesHeadless() {
+/** One pass over every known project. A routine missed while the app was
+ *  closed runs once and is marked late; `finishRoutine` moves it to its next
+ *  future slot, so a long downtime never replays a backlog. */
+async function runDueRoutines() {
   if (headlessSchedBusy) return;
   headlessSchedBusy = true;
   try {
-    const due = await schedulesDue(ROOT);
-    for (const task of due) {
-      const ran = await runScheduledHeadless(task);
-      await scheduleAdvance(ROOT, task.id);
-      if (!ran) console.log("[schedule] skipped \"" + task.title + "\": no provider key");
+    for (const root of knownRoots()) {
+      const due = await routinesDue(root);
+      for (const task of due) {
+        const overdue = task.next > 0 && Date.now() - task.next > 60_000;
+        const claim = await claimRoutine(root, task.id, overdue ? "catchup" : "schedule");
+        if (!claim) continue;
+        await runRoutine(claim.task, root, { trigger: claim.late ? "catchup" : "schedule", runId: claim.runId, late: claim.late });
+      }
     }
   } catch (e) {
-    console.error("[schedule] " + e.message);
+    console.error("[routine] " + e.message);
   } finally {
     headlessSchedBusy = false;
   }
@@ -1970,8 +2094,11 @@ export async function startServer({ port = PORT, root, silent = false } = {}) {
     console.log("  -> http://127.0.0.1:" + actual);
     console.log("  Working directory: " + ROOT + "\n");
   }
+  // Catch up once (a routine missed while the app was closed runs late), then
+  // poll every minute. STAR_DISABLE_SCHEDULER keeps tests in control.
+  if (!process.env.STAR_DISABLE_SCHEDULER) runDueRoutines().catch(() => {});
   const schedTimer = process.env.STAR_DISABLE_SCHEDULER ? null : setInterval(() => {
-    runDueSchedulesHeadless().catch(() => {});
+    runDueRoutines().catch(() => {});
   }, 60_000);
   if (schedTimer && schedTimer.unref) schedTimer.unref();
   return {

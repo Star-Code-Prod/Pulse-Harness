@@ -387,8 +387,28 @@ export async function chartWrite(root, args = {}) {
 }
 
 /* ------------------------------ schedules ----------------------------- */
+// A routine is a saved prompt plus a cadence. The model-facing tool is still
+// called `schedule`; the UI calls the same store "Routines". Version 2 adds
+// enabled/lastRun/history/allowTools; v1 records are upgraded on read.
 
 const SCHEDULE_UNITS = { minute: 60_000, hour: 3_600_000, day: 86_400_000, week: 604_800_000 };
+const ROUTINE_STATUS = new Set(["ok", "error", "skipped", "late", "running"]);
+const ROUTINE_HISTORY_CAP = 50;
+const ROUTINE_STALE_MS = 10 * 60_000;
+
+/** The next local time at h:m strictly after `from`, skipping weekends when
+ *  asked. Loops at most two weeks so a bad clock cannot hang the call. */
+function nextAtTime(from, h, m, weekdaysOnly = false) {
+  const d = new Date(from);
+  d.setHours(h, m, 0, 0);
+  for (let i = 0; i < 14; i++) {
+    const weekend = d.getDay() === 0 || d.getDay() === 6;
+    if (d.getTime() > from && (!weekdaysOnly || !weekend)) return d.getTime();
+    d.setDate(d.getDate() + 1);
+    d.setHours(h, m, 0, 0);
+  }
+  return from + SCHEDULE_UNITS.day;
+}
 
 export function nextRun(when, from = Date.now()) {
   const text = String(when || "").trim().toLowerCase();
@@ -397,63 +417,234 @@ export function nextRun(when, from = Date.now()) {
     const n = Number(every[1] || 1);
     return from + n * SCHEDULE_UNITS[every[2]];
   }
+  if (text === "hourly" || text === "every hour") return from + SCHEDULE_UNITS.hour;
   const daily = /^(?:every day|daily)\s+at\s+(\d{1,2}):(\d{2})$/.exec(text);
-  if (daily) {
-    const d = new Date(from);
-    d.setHours(Number(daily[1]), Number(daily[2]), 0, 0);
-    if (d.getTime() <= from) d.setDate(d.getDate() + 1);
-    return d.getTime();
-  }
-  throw new Error('schedule "when" must look like "every 2 hours", "every day at 09:00" or "daily at 08:30"');
-}
-
-export async function scheduleOp(root, { action = "list", id = "", title = "", when = "", prompt = "" } = {}) {
-  const file = star(root, "schedules.json");
-  const store = await readJson(file, { tasks: [] });
-  const tasks = Array.isArray(store.tasks) ? store.tasks : [];
-  const act = String(action || "list").toLowerCase();
-
-  if (act === "add") {
-    const t = String(title || "").trim();
-    const p = String(prompt || "").trim();
-    if (!t || !p) throw new Error("schedule add needs a title and the prompt to run");
-    const due = nextRun(when);
-    tasks.push({ id: cryptoId(), title: t, when: String(when), prompt: p, next: due, created: Date.now() });
-    await writeJson(file, { tasks });
-    return "Scheduled \"" + t + "\" for " + new Date(due).toLocaleString() + " (" + when + ").";
-  }
-  if (act === "remove") {
-    const key = String(id || title || "").trim();
-    const next = tasks.filter((t) => t.id !== key && t.title !== key);
-    await writeJson(file, { tasks: next });
-    return next.length === tasks.length ? "No schedule matched " + key : "Removed schedule " + key;
-  }
-  if (act !== "list") throw new Error("schedule action must be add, list or remove");
-  if (!tasks.length) return "(nothing scheduled)";
-  return tasks.map((t) => "- " + t.title + " - " + t.when + " (next " + new Date(t.next).toLocaleString() + ")").join("\n");
+  if (daily) return nextAtTime(from, Number(daily[1]), Number(daily[2]));
+  const weekdays = /^(?:every\s+)?weekdays?\s+at\s+(\d{1,2}):(\d{2})$/.exec(text);
+  if (weekdays) return nextAtTime(from, Number(weekdays[1]), Number(weekdays[2]), true);
+  throw new Error('routine "when" must look like "every 2 hours", "hourly", "every day at 09:00" or "weekdays at 08:30"');
 }
 
 function cryptoId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-/** Tasks whose time has come, oldest first. The app polls this. */
-export async function schedulesDue(root, now = Date.now()) {
-  const store = await readJson(star(root, "schedules.json"), { tasks: [] });
-  const tasks = Array.isArray(store.tasks) ? store.tasks : [];
-  return tasks.filter((t) => Number(t.next) > 0 && Number(t.next) <= now);
+/** v1 -> v2 without rewriting the file until the next mutation. */
+function normalizeRoutine(t) {
+  if (!t || !t.id) return null;
+  const when = String(t.when || "").trim();
+  if (!when) return null;
+  let next = Number(t.next) || 0;
+  if (!(next > 0)) {
+    try { next = nextRun(when); } catch { next = Date.now() + SCHEDULE_UNITS.day; }
+  }
+  const history = Array.isArray(t.history)
+    ? t.history.filter((h) => h && h.runId).map((h) => ({
+        runId: String(h.runId),
+        started: Number(h.started) || 0,
+        ended: Number(h.ended) || 0,
+        status: ROUTINE_STATUS.has(h.status) ? h.status : "ok",
+        trigger: String(h.trigger || "schedule"),
+        sessionId: String(h.sessionId || ""),
+        error: String(h.error || ""),
+      })).slice(-ROUTINE_HISTORY_CAP)
+    : [];
+  return {
+    id: String(t.id),
+    title: String(t.title || "Routine"),
+    prompt: String(t.prompt || ""),
+    when,
+    enabled: t.enabled !== false,
+    allowTools: t.allowTools === true,
+    next,
+    created: Number(t.created) || Date.now(),
+    updated: Number(t.updated) || Number(t.created) || Date.now(),
+    lastRun: Number(t.lastRun) || 0,
+    lastStatus: ROUTINE_STATUS.has(t.lastStatus) ? t.lastStatus : "",
+    lastError: String(t.lastError || ""),
+    lastSessionId: String(t.lastSessionId || ""),
+    runningSince: Number(t.runningSince) || 0,
+    runNow: t.runNow === true,
+    history,
+  };
 }
 
-/** Push one task to its next slot after the app ran it. */
-export async function scheduleAdvance(root, id) {
+// One writer per store file: claim/finish and a user edit must never
+// interleave their read-modify-write.
+const routineLocks = new Map();
+function withRoutineLock(file, fn) {
+  const prev = routineLocks.get(file) || Promise.resolve();
+  const next = prev.then(fn, fn);
+  routineLocks.set(file, next.then(() => {}, () => {}));
+  return next;
+}
+
+async function readRoutineStore(root) {
   const file = star(root, "schedules.json");
-  const store = await readJson(file, { tasks: [] });
-  const tasks = Array.isArray(store.tasks) ? store.tasks : [];
-  const task = tasks.find((t) => t.id === id);
-  if (!task) return null;
-  task.next = nextRun(task.when);
-  await writeJson(file, { tasks });
-  return task;
+  const store = await readJson(file, { version: 2, tasks: [] });
+  const tasks = (Array.isArray(store.tasks) ? store.tasks : []).map(normalizeRoutine).filter(Boolean);
+  return { file, tasks };
+}
+
+export async function readRoutines(root) {
+  return (await readRoutineStore(root)).tasks;
+}
+
+async function mutateRoutines(root, fn) {
+  const file = star(root, "schedules.json");
+  return withRoutineLock(file, async () => {
+    const store = await readJson(file, { version: 2, tasks: [] });
+    const tasks = (Array.isArray(store.tasks) ? store.tasks : []).map(normalizeRoutine).filter(Boolean);
+    const out = await fn(tasks);
+    await writeJson(file, { version: 2, tasks });
+    return out;
+  });
+}
+
+/** Create/update/delete/toggle/queue/history for one routine. Returns plain
+ *  data; the tool wrapper turns it into prose. */
+export async function applyRoutineOp(root, args = {}) {
+  const act = String(args.action || "list").toLowerCase();
+  if (act === "list") return { ok: true, tasks: await readRoutines(root) };
+  return mutateRoutines(root, (tasks) => {
+    const key = String(args.id || args.title || "").trim();
+    const find = () => tasks.findIndex((t) => t.id === key || (!args.id && t.title === key));
+    if (act === "add" || act === "create") {
+      const title = String(args.title || "").trim();
+      const prompt = String(args.prompt || "").trim();
+      const when = String(args.when || "").trim();
+      if (!title || !prompt) return { ok: false, error: "a routine needs a title and the prompt to run" };
+      let next;
+      try { next = nextRun(when); } catch (e) { return { ok: false, error: e.message }; }
+      const routine = normalizeRoutine({
+        id: cryptoId(), title, prompt, when, next, created: Date.now(),
+        enabled: args.enabled !== false, allowTools: args.allowTools === true,
+      });
+      tasks.push(routine);
+      return { ok: true, routine, tasks };
+    }
+    const i = find();
+    if (i < 0) return { ok: false, error: "no routine matched " + (key || "(none)") };
+    const t = tasks[i];
+    if (act === "remove" || act === "delete") {
+      tasks.splice(i, 1);
+      return { ok: true, routine: t, tasks };
+    }
+    if (act === "enable" || act === "disable") {
+      t.enabled = act === "enable";
+      t.updated = Date.now();
+      return { ok: true, routine: t, tasks };
+    }
+    if (act === "run") {
+      t.runNow = true;
+      t.updated = Date.now();
+      return { ok: true, routine: t, queued: true, tasks };
+    }
+    if (act === "history") return { ok: true, routine: t, tasks };
+    if (act === "update") {
+      if (args.title != null && String(args.title).trim()) t.title = String(args.title).trim();
+      if (args.prompt != null && String(args.prompt).trim()) t.prompt = String(args.prompt).trim();
+      if (args.when != null && String(args.when).trim()) {
+        try { t.when = String(args.when).trim(); t.next = nextRun(t.when); }
+        catch (e) { return { ok: false, error: e.message }; }
+      }
+      if (args.enabled !== undefined) t.enabled = args.enabled !== false;
+      if (args.allowTools !== undefined) t.allowTools = args.allowTools === true;
+      t.updated = Date.now();
+      return { ok: true, routine: t, tasks };
+    }
+    return { ok: false, error: "action must be add, update, remove, enable, disable, run, history or list" };
+  });
+}
+
+/** Tasks whose slot has arrived (or that a Run now queued). */
+export async function routinesDue(root, now = Date.now()) {
+  const tasks = await readRoutines(root);
+  return tasks.filter((t) => !t.runningSince && (t.runNow || (t.enabled && Number(t.next) > 0 && Number(t.next) <= now)));
+}
+
+/** Atomically take a routine for one run. Null when another run still holds
+ *  it; a claim older than ten minutes is finalized as an error and retaken. */
+export async function claimRoutine(root, id, trigger = "schedule") {
+  return mutateRoutines(root, (tasks) => {
+    const t = tasks.find((x) => x.id === id);
+    if (!t) return null;
+    const now = Date.now();
+    if (t.runningSince) {
+      if (now - t.runningSince < ROUTINE_STALE_MS) return null;
+      const stale = (t.history || []).find((h) => h.status === "running");
+      if (stale) { stale.status = "error"; stale.ended = now; stale.error = "the previous run did not finish"; }
+      t.runningSince = 0;
+    }
+    const late = !t.runNow && t.next > 0 && now - t.next > 60_000;
+    const runId = cryptoId();
+    t.runNow = false;
+    t.runningSince = now;
+    t.lastRun = now;
+    t.lastStatus = "running";
+    const entry = { runId, started: now, ended: 0, status: "running", trigger, sessionId: "", error: "" };
+    t.history = (t.history || []).concat(entry).slice(-ROUTINE_HISTORY_CAP);
+    return { task: t, runId, late };
+  });
+}
+
+/** Settle a claimed run: status, error, session and the next future slot. */
+export async function finishRoutine(root, id, runId, patch = {}) {
+  return mutateRoutines(root, (tasks) => {
+    const t = tasks.find((x) => x.id === id);
+    if (!t) return null;
+    const now = Date.now();
+    const status = ROUTINE_STATUS.has(patch.status) ? patch.status : "ok";
+    t.runningSince = 0;
+    t.lastStatus = status;
+    t.lastError = String(patch.error || "");
+    if (patch.sessionId) t.lastSessionId = String(patch.sessionId);
+    t.updated = now;
+    if (Number(patch.next) > 0) t.next = Number(patch.next);
+    else { try { t.next = nextRun(t.when); } catch { /* keep the old slot */ } }
+    const h = (t.history || []).find((x) => x.runId === runId) || (t.history || []).find((x) => x.status === "running");
+    if (h) { h.ended = now; h.status = status; h.sessionId = String(patch.sessionId || h.sessionId || ""); h.error = String(patch.error || ""); }
+    return t;
+  });
+}
+
+/** Legacy name kept for one release: due routines. */
+export async function schedulesDue(root, now = Date.now()) {
+  return routinesDue(root, now);
+}
+
+/** Legacy name kept for one release: push one task to its next slot. */
+export async function scheduleAdvance(root, id) {
+  return mutateRoutines(root, (tasks) => {
+    const t = tasks.find((x) => x.id === id);
+    if (!t) return null;
+    try { t.next = nextRun(t.when); } catch { /* keep the old slot */ }
+    return t;
+  });
+}
+
+/** The model-facing `schedule` tool: plain prose around applyRoutineOp. */
+export async function scheduleOp(root, { action = "list", ...rest } = {}) {
+  const out = await applyRoutineOp(root, { action, ...rest });
+  if (!out.ok) throw new Error(out.error);
+  if (action === "list") {
+    if (!out.tasks || !out.tasks.length) return "(nothing scheduled)";
+    return out.tasks.map((t) => "- " + t.title + " - " + t.when + (t.enabled ? "" : " (paused)") +
+      " (next " + new Date(t.next).toLocaleString() + ")").join("\n");
+  }
+  if (out.queued) return "Queued \"" + out.routine.title + "\" to run now.";
+  if (action === "history") {
+    return (out.routine.history || []).map((h) => "- " + new Date(h.started).toLocaleString() + " " + h.status +
+      (h.error ? " - " + h.error : "")).join("\n") || "No runs yet.";
+  }
+  if (action === "remove" || action === "delete") return "Removed routine " + out.routine.title + ".";
+  if (action === "enable" || action === "disable") return (out.routine.enabled ? "Enabled " : "Paused ") + out.routine.title + ".";
+  if (action === "add" || action === "create") {
+    return "Scheduled \"" + out.routine.title + "\" for " + out.routine.when +
+      " (next " + new Date(out.routine.next).toLocaleString() + ").";
+  }
+  return "Updated routine \"" + out.routine.title + "\" (" + out.routine.when +
+    ", next " + new Date(out.routine.next).toLocaleString() + ").";
 }
 
 /* -------------------------------- trace ------------------------------- */

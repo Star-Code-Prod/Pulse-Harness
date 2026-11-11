@@ -550,6 +550,15 @@ ok("the process header reads Analyzing/Worked for the round duration",
 ok("process rows carry no shadow",
   !/\.pitem\.thought \.prow\{[^}]*box-shadow/.test(html.replace(/\s+/g, " ")) &&
   !/\.proc::after\{/.test(html.replace(/\s+/g, "")));
+ok("Routines has a sidebar row, popover, settings section and command",
+  html.includes('id="navRoutines"') && html.includes('id="routinePop"') &&
+  js.includes("function openRoutines(") && js.includes('"/api/routines?all=1"') &&
+  html.includes('data-s="routines"') && js.includes("function settingsRoutines(") &&
+  js.includes('label: "Open Routines"'));
+ok("routine runs are tagged with a clock icon",
+  js.includes(": s.routine") && html.includes(".routine-badge"));
+ok("the routine editor covers cadence, writes and history",
+  js.includes('id="rtWhen"') && js.includes('id="rtAllow"') && js.includes("routineHistoryHtml("));
 ok("the conversation stream keeps its flex gap",
   js.includes('$("stream").style.display = "flex"') &&
   html.includes("display:flex;flex-direction:column;gap:20px"));

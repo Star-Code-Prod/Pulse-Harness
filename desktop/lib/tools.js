@@ -211,9 +211,9 @@ export const TOOL_SPECS = [
   },
   {
     name: "schedule",
-    description: "Recurring tasks (weekly reports, morning briefs). action:\"add\" (title, prompt, when) | \"list\" | \"remove\" (id or title). when reads like \"every 2 hours\", \"every day at 09:00\" or \"daily at 08:30\"; prompt is the request that will run.",
+    description: "Routines: saved prompts that run on a cadence (morning briefs, weekly reports, recurring reviews). action:\"add\" (title, prompt, when) | \"list\" | \"update\" (id plus any of title/prompt/when/enabled/allowTools) | \"remove\" (id or title) | \"enable\"/\"disable\" | \"run\" (queue it now) | \"history\". when reads like \"every 2 hours\", \"hourly\", \"every day at 09:00\", \"daily at 08:30\" or \"weekdays at 08:30\". A routine runs read-only unless allowTools is true. prompt is the request that will run in a fresh session.",
     dangerous: false,
-    schema: { action: "string", title: "string?", prompt: "string?", when: "string?", id: "string?" },
+    schema: { action: "string", title: "string?", prompt: "string?", when: "string?", id: "string?", enabled: "boolean?", allowTools: "boolean?" },
   },
   {
     name: "trace",
