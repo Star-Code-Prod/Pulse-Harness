@@ -8081,6 +8081,8 @@ function ensureProc(append) {
     </button>
     <div class="proc-b"></div>`;
   if (!append && currentMsg && currentMsg.parentNode === $("stream")) $("stream").insertBefore(n, currentMsg);
+  // Folded by default; the Settings switch can keep rounds open instead.
+  if (!state.autoCollapseThinking) { n.classList.add("open"); n.querySelector(".proc-h").setAttribute("aria-expanded", "true"); }
   n.querySelector(".proc-h").addEventListener("click", () => {
     n.classList.toggle("open");
     n.querySelector(".proc-h").setAttribute("aria-expanded", n.classList.contains("open") ? "true" : "false");
@@ -8232,6 +8234,8 @@ function startThinking() {
     if (!currentThink || !currentThink.it) return;
     const s = Math.floor((performance.now() - thinkStart) / 1000);
     currentThink.it.met.textContent = s > 0 ? "analyzing · " + s + "s" : "analyzing";
+    // The folded header carries the visible clock now.
+    if (proc) procSummary();
   }, 500);
   scrollDown();
 }
@@ -11552,6 +11556,16 @@ function closeProjects() {
 /* ---- routines ---- */
 let routineItems = [];
 let routineEditing = "";
+let routinePoll = 0;
+
+function scheduleRoutinePoll() {
+  clearTimeout(routinePoll);
+  routinePoll = 0;
+  if (routineEditing || $("routinePop").style.display === "none") return;
+  if (routineItems.some((r) => r.lastStatus === "running")) {
+    routinePoll = setTimeout(() => { renderRoutines(); }, 5000);
+  }
+}
 
 function routineRootNow() { return state.root || ""; }
 function routineNextText(ts) {
@@ -11571,6 +11585,8 @@ async function openRoutines() {
 }
 function closeRoutines() {
   $("routinePop").style.display = "none";
+  clearTimeout(routinePoll);
+  routinePoll = 0;
   const active = document.querySelector(".sb-nav-row.on");
   if (active && active.id === "navRoutines") setSidebarNav("");
 }
@@ -11611,6 +11627,7 @@ async function runRoutineById(id) {
     });
     if (!j.ok) throw new Error(j.error || "could not start it");
     toast("Routine queued — it appears in Sessions when it starts.");
+    setTimeout(() => loadSessions(), 2500);
     await renderRoutines();
   } catch (e) {
     toast("Could not run that routine: " + e.message);
@@ -11632,6 +11649,7 @@ function renderRoutineEditor(r) {
     <label>Prompt<textarea id="rtPrompt" placeholder="What should run each time?">${esc(draft.prompt || "")}</textarea></label>
     <label>Cadence<input id="rtWhen" type="text" value="${esc(draft.when || "daily at 09:00")}" placeholder="weekdays at 08:30" autocomplete="off"></label>
     <div class="routine-hint">hourly · every 2 hours · daily at 09:00 · weekdays at 08:30</div>
+    <div class="routine-hint">Runs in ${esc(String(draft.root || routineRootNow() || "the current project").split(/[\\/]/).filter(Boolean).pop() || "the current project")}</div>
     <label class="routine-check"><input id="rtAllow" type="checkbox"${draft.allowTools ? " checked" : ""}> Allow writes and commands</label>
     <label class="routine-check"><input id="rtEnabled" type="checkbox"${draft.enabled !== false ? " checked" : ""}> Enabled</label>
     <div class="routine-actions">
@@ -11696,6 +11714,7 @@ async function renderRoutines() {
   try { await loadRoutines(); } catch { host.innerHTML = '<div class="projpop-empty">Could not load routines.</div>'; return; }
   host.innerHTML = routineListHtml();
   wireRoutineRows(host);
+  scheduleRoutinePoll();
 }
 $("routineClose").addEventListener("click", closeRoutines);
 $("routineNew").addEventListener("click", () => { routineEditing = "new"; renderRoutines(); });

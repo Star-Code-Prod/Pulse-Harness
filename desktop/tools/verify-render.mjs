@@ -548,7 +548,7 @@ ok("the process header reads Thought for/Used the round duration",
   js.includes('"Thought for "') && js.includes('"Used "') &&
   js.includes('"Thinking… "') && js.includes("fmtDur(total)"));
 ok("a round is folded by default and hides when empty",
-  js.includes('aria-expanded="false"') && !js.includes('n.classList.add("open")') &&
+  js.includes('aria-expanded="false"') && js.includes("if (!state.autoCollapseThinking)") &&
   html.includes(".proc.empty{display:none}"));
 ok("reasoning prose needs no second fold",
   html.includes(".pitem.thought .prow{display:none}") &&
