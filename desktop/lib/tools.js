@@ -1585,6 +1585,17 @@ export function createToolRunner(root, opts = {}) {
       if (String(name).startsWith("mcp__")) return true; // a server tool acts outside Star's sandbox: always ask
       return !!TOOL_SPECS.find((t) => t.name === name)?.dangerous;
     },
+    /** Server, title and annotation hints for an MCP tool, for the permission
+     *  card. Null for built-ins and unknown names. */
+    mcpMeta(name) {
+      if (!mcp || !String(name).startsWith("mcp__")) return null;
+      const t = mcp.toolList().find((x) => x.name === name);
+      return t ? {
+        server: t.server, serverTitle: t.serverTitle, title: t.title || "",
+        readOnly: !!t.readOnly, destructive: !!t.destructive,
+        description: t.description || "", params: t.params || "",
+      } : null;
+    },
     root,
     /** The allowed tool names (null = every tool), for the chat loop. */
     allowed,

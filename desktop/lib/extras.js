@@ -509,35 +509,50 @@ const CONNECTOR_PRESETS = {
 };
 
 export async function connectorOp(root, { action = "list", name = "", command = "", args = [] } = {}) {
-  const file = star(root, "connectors.json");
-  const store = await readJson(file, { connectors: {} });
-  const list = store.connectors && typeof store.connectors === "object" ? store.connectors : {};
+  // Connectors ARE MCP servers: write the project's real mcp.json so the
+  // manager sees them. The old connectors.json was never read by the client.
+  const file = star(root, "mcp.json");
+  const store = await readJson(file, null);
+  const base = store && typeof store === "object" ? { ...store } : {};
+  let servers = base.servers && typeof base.servers === "object" ? base.servers : null;
+  if (!servers) {
+    const legacy = await readJson(star(root, "connectors.json"), { connectors: {} });
+    const old = legacy.connectors && typeof legacy.connectors === "object" ? legacy.connectors : {};
+    servers = {};
+    for (const [k, v] of Object.entries(old)) {
+      const cmd = [String(v.command || "").trim(), ...(Array.isArray(v.args) ? v.args.map(String) : [])].filter(Boolean);
+      if (k && cmd.length) servers[k] = { command: cmd };
+    }
+    if (Object.keys(servers).length) await writeJson(file, { ...base, version: base.version || 1, servers });
+  }
+  const save = () => writeJson(file, { ...base, version: base.version || 1, servers });
   const act = String(action || "list").toLowerCase();
 
   if (act === "add") {
     const key = String(name || "").trim().toLowerCase();
-    if (!key || !String(command || "").trim()) throw new Error("connector add needs a name and the MCP command to launch");
-    if (!CONNECTOR_PRESETS[key]) {
-      // Unknown names are allowed, but say what the built-in presets are.
-    }
-    list[key] = { command: String(command).trim(), args: Array.isArray(args) ? args.map(String) : String(args || "").split(/\s+/).filter(Boolean), kind: CONNECTOR_PRESETS[key] || "custom", added: Date.now() };
-    await writeJson(file, { connectors: list });
-    return "Added " + key + " (" + list[key].kind + "). Restart Star, or reload MCP servers, so it connects.";
+    const cmd = [String(command || "").trim(), ...(Array.isArray(args) ? args.map(String) : String(args || "").split(/\s+/).filter(Boolean))].filter(Boolean);
+    if (!key || !cmd.length) throw new Error("connector add needs a name and the MCP command to launch");
+    servers[key] = { command: cmd };
+    await save();
+    return "Connected " + key + " (" + (CONNECTOR_PRESETS[key] || "custom") + "). The MCP manager reloads mcp.json within a second.";
   }
   if (act === "remove") {
     const key = String(name || "").trim().toLowerCase();
-    delete list[key];
-    await writeJson(file, { connectors: list });
+    delete servers[key];
+    await save();
     return "Removed " + key + ".";
   }
   if (act !== "list") throw new Error("connector action must be list, add or remove");
-  const configured = Object.entries(list);
+  const configured = Object.entries(servers);
   const presets = Object.keys(CONNECTOR_PRESETS).join(", ");
   if (!configured.length) {
     return "No connectors configured. These talk to the apps your data lives in through MCP servers:\n  " + presets +
       '\nAdd one with connector action:"add", name:"gmail", command:"npx", args:["-y","@some/gmail-mcp"]';
   }
-  return configured.map(([k, v]) => "- " + k + " [" + v.kind + "] " + v.command + " " + (v.args || []).join(" ")).join("\n");
+  return configured.map(([k, v]) => {
+    const cmd = v.url || [].concat(v.command || []).join(" ");
+    return "- " + k + " [" + (CONNECTOR_PRESETS[k] || "custom") + "] " + cmd;
+  }).join("\n");
 }
 
 export { CONNECTOR_PRESETS };

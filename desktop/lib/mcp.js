@@ -60,12 +60,22 @@ const slug = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").re
  *  Providers cap function names at 64 characters, so a very long pair is
  *  shortened with a stable 4-character suffix instead of being rejected by
  *  the provider. The manager matches the exact name it advertised. */
-export function mcpToolName(server, tool) {
-  const base = "mcp__" + slug(server) + "__" + slug(tool);
+function joinToolName(serverSlug, toolSlug) {
+  const base = "mcp__" + serverSlug + "__" + toolSlug;
   if (base.length <= 64) return base;
   let h = 2166136261;
   for (let i = 0; i < base.length; i++) { h ^= base.charCodeAt(i); h = Math.imul(h, 16777619); }
   return base.slice(0, 59) + "_" + (h >>> 0).toString(36).slice(0, 4);
+}
+
+export function mcpToolName(server, tool) {
+  return joinToolName(slug(server), slug(tool));
+}
+
+/** The advertised name for a record's tool. The record carries a de-duplicated
+ *  server slug, so two configured servers that slug alike stay callable. */
+function publicToolName(rec, tool) {
+  return joinToolName(rec.slug || slug(rec.name), slug(tool));
 }
 
 /** Split a namespaced name back into { server, tool } (slugs), or null. */
@@ -559,8 +569,15 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
       if (!p) return;
       conn.pending.delete(msg.id);
       clearTimeout(p.timer);
-      if (msg.error) p.reject(new Error(short(msg.error.message || "MCP error")));
-      else p.resolve(msg.result);
+      if (msg.error) {
+        const e = new Error("Server \"" + rec.name + "\"" +
+          (msg.error.code !== undefined ? " (" + msg.error.code + ")" : "") +
+          ": " + short(msg.error.message || "MCP error"));
+        e.mcpServer = rec.name;
+        if (msg.error.code !== undefined) e.mcpCode = msg.error.code;
+        if (msg.error.data !== undefined) e.mcpData = msg.error.data;
+        p.reject(e);
+      } else p.resolve(msg.result);
       return;
     }
     if (msg.id !== undefined && msg.method) {
@@ -635,6 +652,11 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
       conn.close = () => {
         conn.closed = true;
         try { proc.stdin.end(); } catch { /* gone */ }
+        // On Windows the child is usually cmd.exe -> npx -> node; killing only
+        // the parent orphans the server. taskkill /T takes the whole tree.
+        if (process.platform === "win32" && proc.pid) {
+          try { spawn("taskkill", ["/PID", String(proc.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }); } catch { /* fall through */ }
+        }
         try { proc.kill(); } catch { /* gone */ }
       };
       proc.on("error", (e) => {
@@ -864,16 +886,28 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
       const res = await conn.request("tools/list", cursor ? { cursor } : {}, HANDSHAKE_TIMEOUT_MS);
       const list = res && Array.isArray(res.tools) ? res.tools : [];
       for (const t of list) {
-        const name = slug(t && t.name);
-        if (!name) continue;
+        // The protocol name can contain spaces, dots and capitals; the model
+        // calls the slugged name, but tools/call must send the name exactly as
+        // the server advertised it. Keep both.
+        const wireName = String((t && t.name) || "");
+        const base = slug(wireName);
+        if (!base) continue;
+        let name = base;
+        for (let i = 2; tools.some((x) => x.name === name); i++) name = base + "_" + i;
+        const ann = t && t.annotations && typeof t.annotations === "object" ? t.annotations : {};
         tools.push({
           name,
+          wireName,
+          title: String((t && t.title) || ann.title || ""),
           description: short(t && t.description || ""),
+          readOnly: ann.readOnlyHint === true,
+          destructive: ann.destructiveHint === true,
           // The model cannot CALL a tool it cannot argue: keep the schema
           // (as a compact hint for the text format, and as the real JSON
           // Schema for native tool calling).
           params: compactParams(t && t.inputSchema),
           schema: t && t.inputSchema && typeof t.inputSchema === "object" ? t.inputSchema : { type: "object", properties: {} },
+          outputSchema: t && t.outputSchema && typeof t.outputSchema === "object" ? t.outputSchema : null,
         });
       }
       cursor = res && typeof res.nextCursor === "string" && res.nextCursor ? res.nextCursor : null;
@@ -894,7 +928,7 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
   /** The protocol handshake and the first tools/list on an open connection. */
   /** Stamp each tool with the exact public name this manager advertises. */
   function stampTools(rec, tools) {
-    return tools.map((t) => ({ ...t, full: mcpToolName(rec.name, t.name) }));
+    return tools.map((t) => ({ ...t, full: publicToolName(rec, t.name) }));
   }
 
   async function handshake(rec, conn, startup) {
@@ -905,6 +939,9 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
       clientInfo: { name: "star-code", version: "1" },
     }, startup);
     if (init && init.protocolVersion) conn.protocolVersion = String(init.protocolVersion);
+    rec.serverInfo = init && init.serverInfo && typeof init.serverInfo === "object" ? init.serverInfo : null;
+    rec.instructions = init && typeof init.instructions === "string" ? init.instructions : "";
+    rec.capabilities = init && init.capabilities && typeof init.capabilities === "object" ? init.capabilities : {};
     conn.notify("notifications/initialized");
     return stampTools(rec, await fetchTools(conn));
   }
@@ -950,6 +987,9 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
         }
         rec.state = "ready";
         rec.error = "";
+        rec.failures = 0;
+        clearTimeout(rec.retryTimer);
+        rec.retryTimer = 0;
         scheduleIdle(rec);
         // The config was edited while this server was starting: drop the
         // connection instead of leaving an orphan process behind.
@@ -964,6 +1004,15 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
         rec.state = "down";
         rec.error = err.message;
         closeRec(rec);
+        // Retry a failed boot on a capped backoff (1, 2, 4, 8 min), so a
+        // server that was still installing itself recovers without a restart.
+        rec.failures = (rec.failures || 0) + 1;
+        clearTimeout(rec.retryTimer);
+        const delay = Math.min(8 * 60_000, 60_000 * Math.pow(2, Math.min(3, rec.failures - 1)));
+        rec.retryTimer = setTimeout(() => {
+          if (!stopped && rec.cfg && rec.cfg.enabled && rec.state === "down") connectOnce(rec).catch(() => { /* state carries it */ });
+        }, delay);
+        if (rec.retryTimer.unref) rec.retryTimer.unref();
         fire();
         reject(err);
       }
@@ -1007,8 +1056,11 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
     }
     for (const [name, cfg] of Object.entries(cfgMap)) {
       if (servers.has(name)) continue;
+      const taken = new Set([...servers.values()].map((r) => r.slug));
+      let serverSlug = slug(name) || "server";
+      for (let i = 2; taken.has(serverSlug); i++) serverSlug = (slug(name) || "server") + "_" + i;
       const rec = {
-        name, cfg, state: "off", error: "", tools: [], conn: null,
+        name, slug: serverSlug, cfg, state: "off", error: "", tools: [], conn: null,
         idleTimer: 0, toolsTimer: 0, booting: null, spawnError: null,
       };
       servers.set(name, rec);
@@ -1028,14 +1080,21 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
       enabled: !!rec.cfg.enabled,
       state: rec.cfg.enabled ? rec.state : "off",
       error: rec.error || "",
-      tools: rec.tools.map((t) => ({ name: t.name, description: t.description, params: t.params || "" })),
+      title: (rec.serverInfo && (rec.serverInfo.title || rec.serverInfo.name)) || rec.name,
+      instructions: rec.instructions || "",
+      serverInfo: rec.serverInfo || null,
+      tools: rec.tools.map((t) => ({
+        name: t.name, wireName: t.wireName || t.name, description: t.description,
+        params: t.params || "", title: t.title || "",
+        readOnly: !!t.readOnly, destructive: !!t.destructive,
+      })),
     }));
   }
 
   /** Records are keyed by their configured name, but tool names carry the
    *  slugged name - "verify-stub" answers to mcp__verify_stub__*. */
   function findBySlug(slugName) {
-    for (const rec of servers.values()) if (slug(rec.name) === slugName) return rec;
+    for (const rec of servers.values()) if ((rec.slug || slug(rec.name)) === slugName) return rec;
     return null;
   }
 
@@ -1045,7 +1104,7 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
     if (hit) return hit.rec.cfg.enabled;
     if (!p) return false;
     const rec = findBySlug(p.server);
-    return !!rec && rec.cfg.enabled && rec.tools.some((t) => t.name === p.tool);
+    return !!rec && rec.cfg.enabled && rec.tools.some((t) => t.name === p.tool || (t.wireName || t.name) === p.tool);
   }
 
   /** Resolve the public tool name back to { rec, tool }. Names longer than
@@ -1053,7 +1112,7 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
   function findTool(full) {
     const name = String(full || "");
     for (const rec of servers.values()) {
-      const tool = rec.tools.find((t) => (t.full || mcpToolName(rec.name, t.name)) === name);
+      const tool = rec.tools.find((t) => (t.full || publicToolName(rec, t.name)) === name);
       if (tool) return { rec, tool };
     }
     return null;
@@ -1118,8 +1177,23 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
       if (rec.state !== "ready" && rec.state !== "idle") continue;
       // A bridge to a closed app lists tools that cannot work: hide them.
       if (appClosed(rec, Date.now())) continue;
+      const serverTitle = (rec.serverInfo && (rec.serverInfo.title || rec.serverInfo.name)) || rec.name;
       for (const t of rec.tools) {
-        out.push({ name: t.full || mcpToolName(rec.name, t.name), description: t.description, params: t.params || "", schema: t.schema });
+        out.push({
+          name: t.full || publicToolName(rec, t.name),
+          kind: "mcp",
+          description: t.description,
+          params: t.params || "",
+          schema: t.schema,
+          wireName: t.wireName || t.name,
+          server: rec.name,
+          serverTitle,
+          serverInstructions: rec.instructions || "",
+          title: t.title || "",
+          readOnly: !!t.readOnly,
+          destructive: !!t.destructive,
+          outputSchema: t.outputSchema || null,
+        });
       }
     }
     return out;
@@ -1129,34 +1203,50 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
    *  name. The exact advertised name wins; the slug parse is the fallback. */
   function resolveInvocation(full) {
     const hit = findTool(full);
-    if (hit) return { rec: hit.rec, toolName: hit.tool.name, p: { server: slug(hit.rec.name), tool: hit.tool.name } };
+    if (hit) return { rec: hit.rec, toolName: hit.tool.wireName || hit.tool.name, p: { server: hit.rec.slug || slug(hit.rec.name), tool: hit.tool.name } };
     const p = parseToolName(full);
     if (!p) throw new Error("not an MCP tool: " + full);
     const rec = findBySlug(p.server);
     if (!rec) throw new Error("MCP server \"" + p.server + "\" is not configured or is disabled.");
-    return { rec, toolName: p.tool, p };
+    return { rec, toolName: (offeredTool(rec, p.tool) || {}).wireName || p.tool, p };
+  }
+
+  function offeredTool(rec, name) {
+    return rec.tools.find((t) => t.name === name || (t.wireName || t.name) === name) || null;
+  }
+
+  /** Reconnecting after a dropped pipe is safe only for tools that do not
+   *  change anything. A write that may already have run must not run twice. */
+  function safeToRetry(tool) {
+    if (tool.readOnly) return true;
+    return /^(get|list|read|search|find|fetch|query|describe|show|inspect|echo|screenshot|probe|status|health|schema|view|lookup|count)/i
+      .test(String(tool.wireName || tool.name || ""));
   }
 
   async function call(full, args, opts = {}) {
-    const { rec, toolName, p } = resolveInvocation(full);
+    let { rec, toolName, p } = resolveInvocation(full);
     if (!rec.cfg.enabled) throw new Error("MCP server \"" + p.server + "\" is not configured or is disabled.");
-    if (rec.state !== "ready" || !rec.tools.some((t) => t.name === toolName)) {
+    let tool = offeredTool(rec, toolName);
+    if (rec.state !== "ready" || !tool) {
       await connectOnce(rec);
-      if (!rec.tools.some((t) => t.name === toolName)) {
-        throw new Error("MCP tool \"" + toolName + "\" is not offered by \"" + p.server + "\".");
-      }
+      tool = offeredTool(rec, toolName);
+      if (!tool) throw new Error("MCP tool \"" + toolName + "\" is not offered by \"" + p.server + "\".");
     }
+    toolName = tool.wireName || tool.name;
     scheduleIdle(rec);
     const timeout = Number(opts.timeoutMs) || serverTimeout(rec) || callTimeoutMs;
     try {
       const res = await rec.conn.request("tools/call", { name: toolName, arguments: args || {} }, timeout);
       return resultText(rec, p, res);
     } catch (e) {
-      if (e && (e.mcpTimeout || e.mcpToolError)) throw e;
+      if (e && (e.mcpTimeout || e.mcpToolError || e.mcpCode !== undefined)) throw e;
+      if (!safeToRetry(tool)) throw e;
       // One reconnect for a dead process, then one retry.
       closeRec(rec);
       rec.state = "starting";
       await connectOnce(rec);
+      const again = offeredTool(rec, toolName) || tool;
+      toolName = again.wireName || again.name;
       const res = await rec.conn.request("tools/call", { name: toolName, arguments: args || {} }, timeout);
       return resultText(rec, p, res);
     }
@@ -1165,24 +1255,28 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
   /** Like call(), but keeps image content blocks: { text, images }. The
    *  Preview pane's Blender live view goes through this. */
   async function callRaw(fullName, args, opts = {}) {
-    const { rec, toolName, p } = resolveInvocation(fullName);
+    let { rec, toolName, p } = resolveInvocation(fullName);
     if (!rec.cfg.enabled) throw new Error("MCP server \"" + p.server + "\" is not configured or is disabled.");
-    if (rec.state !== "ready" || !rec.tools.some((t) => t.name === toolName)) {
+    let tool = offeredTool(rec, toolName);
+    if (rec.state !== "ready" || !tool) {
       await connectOnce(rec);
-      if (!rec.tools.some((t) => t.name === toolName)) {
-        throw new Error("MCP tool \"" + toolName + "\" is not offered by \"" + p.server + "\".");
-      }
+      tool = offeredTool(rec, toolName);
+      if (!tool) throw new Error("MCP tool \"" + toolName + "\" is not offered by \"" + p.server + "\".");
     }
+    toolName = tool.wireName || tool.name;
     scheduleIdle(rec);
     const timeout = Number(opts.timeoutMs) || serverTimeout(rec) || callTimeoutMs;
     let res;
     try {
       res = await rec.conn.request("tools/call", { name: toolName, arguments: args || {} }, timeout);
     } catch (e) {
-      if (e && e.mcpTimeout) throw e;
+      if (e && (e.mcpTimeout || e.mcpToolError || e.mcpCode !== undefined)) throw e;
+      if (!safeToRetry(tool)) throw e;
       closeRec(rec);
       rec.state = "starting";
       await connectOnce(rec);
+      const again = offeredTool(rec, toolName) || tool;
+      toolName = again.wireName || again.name;
       res = await rec.conn.request("tools/call", { name: toolName, arguments: args || {} }, timeout);
     }
     if (res && res.isError) throw new Error(resultText(rec, p, res).slice(0, RESULT_CAP));
@@ -1190,22 +1284,37 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
   }
 
   function resultText(rec, p, res) {
-    const texts = res && Array.isArray(res.content)
-      ? res.content.filter((c) => c && c.type === "text").map((c) => String(c.text || ""))
-      : [];
+    const text = [];
+    for (const c of res && Array.isArray(res.content) ? res.content : []) {
+      if (!c || typeof c !== "object") continue;
+      if (c.type === "text") text.push(String(c.text || ""));
+      else if (c.type === "resource") {
+        const r = c.resource || {};
+        text.push("[resource: " + (r.uri || "?") + "]" + (r.text ? "\n" + r.text : " (binary)"));
+      } else if (c.type === "resource_link") {
+        text.push("[resource link: " + (c.uri || "") + (c.name ? " (" + c.name + ")" : "") + "]");
+      } else if (c.type === "audio") {
+        text.push("[audio: " + (c.mimeType || "audio") + "]");
+      } else if (c.type !== "image") {
+        text.push(JSON.stringify(c).slice(0, 500));
+      }
+    }
+    if (!text.length && res && res.structuredContent !== undefined) {
+      text.push(JSON.stringify(res.structuredContent));
+    }
     // Images: the agent cannot see them, but it must KNOW when one came back
     // (Blender screenshots). A short note replaces the base64 blob.
     const images = imagesOf(res);
-    for (const img of images) texts.push("[image: " + img.mime + ", " + Math.round(img.dataUrl.length * 0.75) + " bytes - shown to the user, not readable as text]");
-    const text = texts.join("\n") || JSON.stringify(res === undefined ? null : res);
+    for (const img of images) text.push("[image: " + img.mime + ", " + Math.round(img.dataUrl.length * 0.75) + " bytes - shown to the user, not readable as text]");
+    const out = text.join("\n") || JSON.stringify(res === undefined ? null : res);
     if (res && res.isError) {
-      const e = new Error(text.slice(0, RESULT_CAP));
+      const e = new Error(out.slice(0, RESULT_CAP));
       // A tool-level error is a real answer, not a dead connection: the call
       // must not be reconnected and retried (that would run it twice).
       e.mcpToolError = true;
       throw e;
     }
-    return text.slice(0, RESULT_CAP);
+    return out.slice(0, RESULT_CAP);
   }
 
   /** Image content blocks as { mime, dataUrl } (data URLs, ready for <img>). */
@@ -1347,7 +1456,11 @@ export function createMcpManager({ root, onChange, callTimeoutMs = CALL_TIMEOUT_
     stopped = true;
     clearInterval(poll);
     LIVE_MANAGERS.delete(hook);
-    for (const rec of servers.values()) closeRec(rec);
+    for (const rec of servers.values()) {
+      clearTimeout(rec.retryTimer);
+      rec.retryTimer = 0;
+      closeRec(rec);
+    }
   }
 
   const hook = { kill: () => { for (const rec of servers.values()) closeRec(rec); } };

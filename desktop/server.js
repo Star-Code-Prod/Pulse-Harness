@@ -80,6 +80,10 @@ const subagentControllers = new Map();
 const askTurns = new Map();
 const SUBAGENT_BLOCKED = new Set(["write_file", "edit_file", "multi_edit", "run_command", "download", "fetch_url", "websearch", "task"]);
 const CHAT_TOOLS = ["websearch", "fetch_url", "self_knowledge", "search_knowledge", "task", "ask_user", "question", "skill", "create_skill", "suggest_session", "preview"];
+/** Chat's own tools plus whatever MCP servers are connected right now. */
+function chatToolList() {
+  return CHAT_TOOLS.concat(mcpManager.toolList().map((t) => t.name));
+}
 
 /* --------------------------------- mcp ----------------------------------- */
 // The shared MCP manager: connects enabled servers at boot, exposes their
@@ -536,7 +540,7 @@ function chatSystemContent() {
   if (typeof fn !== "function") {
     throw new Error("chat sessions need chatSystemPrompt() from lib/agent.js - this build does not export it");
   }
-  const text = String(fn() || "").trim();
+  const text = String(fn(mcpManager.toolList()) || "").trim();
   if (!text) throw new Error("chatSystemPrompt() returned an empty prompt");
   return text;
 }
@@ -732,10 +736,10 @@ function agentTurnTarget(agent, session) {
  */
 function sessionRunner(s, agent = null) {
   if (agent) {
-    const allowed = agentAllowedTools(agent, s.kind === "chat" ? CHAT_TOOLS : null);
+    const allowed = agentAllowedTools(agent, s.kind === "chat" ? chatToolList() : null);
     return allowed ? makeRunner(sessionRoot(s), allowed, s) : makeRunner(sessionRoot(s), null, s);
   }
-  if (s.kind === "chat") return makeRunner(sessionRoot(s), CHAT_TOOLS, s);
+  if (s.kind === "chat") return makeRunner(sessionRoot(s), chatToolList(), s);
   return makeRunner(sessionRoot(s), null, s);
 }
 
@@ -1659,7 +1663,7 @@ async function route(req, res) {
       new Promise((resolve) => {
         const id = randomUUID();
         session.pending.set(id, resolve);
-        pushUi(session, { type: "permission", after: uiAfter(session), id, name: info.name, args: info.args, ask: info.ask || "", verdict: null });
+        pushUi(session, { type: "permission", after: uiAfter(session), id, name: info.name, args: info.args, ask: info.ask || "", mcp: info.mcp || null, verdict: null });
         emit({ type: "permission_request", id, ...info });
       });
 
@@ -1882,6 +1886,12 @@ export async function startServer({ port = PORT, root, silent = false } = {}) {
   // Plugins load before the port opens: the first turn already sees their
   // tools. A broken plugin reports on its Settings row, never throws here.
   await pluginManager.load({ version: VERSION });
+  // Give MCP servers a short head start so the first turn already sees their
+  // tools. A slow npx install must not hold startup hostage, so cap the wait.
+  await Promise.race([
+    mcpManager.ready(),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ]);
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, "127.0.0.1", resolve);
