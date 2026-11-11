@@ -1,5 +1,12 @@
 # What's new in Pulse Harness
 
+## 1.43.0 — 2026-11-11
+- **Routines are a first-class page.** A project-scoped Routines page (sidebar, command palette, Settings) with search, a project picker, enable/pause, Run now, edit, delete and recent-run history. Cadences include hourly, every N hours/days/weeks, daily and weekdays at HH:MM. A missed run catches up once on launch and is marked late; runs open as normal, tagged sessions. Read-only by default, with an explicit “Allow writes and commands” switch. The agent can create routines from a plain request in Code and Chat.
+- **MCP calls use the server's exact tool names.** Slug collisions get stable suffixes, handshake instructions and server titles ride in the prompt grouped by server, read-only/destructive hints show on permission cards, Chat can use MCP tools, resource/link/structured content is read, errors name the server and code, and retries are limited to dead connections and safe read-only calls. Connectors write the mcp.json the client reads; Windows stdio process trees are killed.
+- **Stability.** Session switches are ordered and timed out; SSE disconnects abort the turn and settle open cards; request bodies cap at 2 MB; uncaught exceptions are logged; the session store flushes on shutdown and keeps a .bak; subagent context is per session and parallel tool results settle by call id.
+- **Thinking rounds fold into one “Thought for 12s” row** that expands to the reasoning prose and compact tool rows, with matching replay. The composer now matches the desktop reference: surface only around the prompt, send/stop inside it and shown when relevant, with model, effort, permission and context right-aligned below. Effort has its own Low/Medium/High menu and the model picker is 300×340.
+- **Agents are visible and editable.** Pick a persona from the composer; Settings → Agents edits prompt-only custom agents (name, description, system prompt) saved to .star-code/agents. The right rail is one tabbed pane, Search opens Ctrl/Cmd+K, and clickable elements share a quiet hover language.
+
 ## 1.42.1 — 2026-11-09
 - **Fix the update log in installed desktop builds.** The packaged app now includes `CHANGELOG.md`, so `/api/changelog` has entries instead of returning an empty list.
 - The last-seen version is read from the shared server config on every launch, so the log survives random localhost ports and appears after an update.
