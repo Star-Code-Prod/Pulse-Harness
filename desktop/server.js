@@ -72,7 +72,13 @@ const sessions = new Map();
 // blocked there, so a subagent can never mutate anything or leave the machine.
 // Chat sessions additionally restrict the main runner to CHAT_TOOLS; the same
 // allowlist is inherited by subagents and never widened by a custom agent.
-let subagentCtx = null;
+// One context per running session: two sessions can run turns at once, and a
+// subagent must inherit the model/root of the turn that spawned it, not the
+// last turn that happened to start.
+const subagentContexts = new Map();
+function subagentCtxFor(session) {
+  return session && subagentContexts.get(session.id) ? subagentContexts.get(session.id) : null;
+}
 const subagentControllers = new Map();
 // Live ask_user emitters, one per streaming session. A turn registers its
 // emit here while it runs and removes it when it ends; a call with no live
@@ -111,8 +117,8 @@ function subagentModel(providerId) {
  * parent provider's cheap model, else the parent's model. An unknown provider
  * or a malformed value is ignored, never fatal.
  */
-function subagentTarget(agent) {
-  const parent = subagentCtx;
+function subagentTarget(agent, parent) {
+  if (!parent) return null;
   const wanted = agent && typeof agent.model === "string" ? agent.model.trim() : "";
   if (wanted) {
     const slash = wanted.indexOf("/");
@@ -237,7 +243,8 @@ function makeRunner(r, allowed, session = null) {
       });
     },
     runSubagent: async ({ instructions, agent } = {}) => {
-      if (!subagentCtx) return { error: "no model configured yet - answer without a subagent" };
+      const ctx = subagentCtxFor(session);
+      if (!ctx) return { error: "no model configured yet - answer without a subagent" };
       // A custom agent may narrow the explorer further (its own tools) and
       // pick its own model; the session's allowlist is inherited, not widened.
       let allowedForSub = null;
@@ -249,7 +256,7 @@ function makeRunner(r, allowed, session = null) {
       } else if (Array.isArray(agent?.tools) && agent.tools.length) {
         allowedForSub = agent.tools.slice();
       }
-      const base = createToolRunner(subagentCtx.root, allowedForSub ? { allowed: allowedForSub } : {});
+      const base = createToolRunner(ctx.root, allowedForSub ? { allowed: allowedForSub } : {});
       const gated = allowedForSub ? restrictRunner(base, allowedForSub) : base;
       const parentEmit = session && askTurns.get(session.id);
       const subId = randomUUID();
@@ -277,17 +284,18 @@ function makeRunner(r, allowed, session = null) {
         ? agent.promptText.trim().slice(0, 8000) + "\n\n"
         : "";
       const messages = [
-        { role: "system", content: persona + systemPrompt(subagentCtx.root, "plan") },
+        { role: "system", content: persona + systemPrompt(ctx.root, "plan") },
         { role: "user", content: "Research task - explore and report findings only: " + instructions },
       ];
-      const target = subagentTarget(agent);
+      const target = subagentTarget(agent, ctx);
+      if (!target) return { error: "no model configured yet - answer without a subagent" };
       // A model from a different provider needs that provider's own
       // credentials; the parent's only apply while the provider is the same.
-      const targetKey = target.provider === subagentCtx.provider
-        ? subagentCtx.apiKey
+      const targetKey = target.provider === ctx.provider
+        ? ctx.apiKey
         : resolveKey(target.provider, "", PROVIDERS[target.provider].envKeys || []);
-      const targetBase = target.provider === subagentCtx.provider
-        ? subagentCtx.baseUrl
+      const targetBase = target.provider === ctx.provider
+        ? ctx.baseUrl
         : ((readAuth().providers[target.provider] || {}).baseUrl || undefined);
       let text = "";
       await runAgentTurn({
@@ -430,7 +438,14 @@ function loadStore() {
         }
       }
     }
-  } catch { /* first run, or unreadable - start empty */ }
+  } catch (e) {
+    // First run is silent. A corrupt store is kept as .bak before the next
+    // write replaces it, so the old sessions are never silently destroyed.
+    if (e && e.code !== "ENOENT") {
+      console.error("could not read sessions store:", e.message);
+      try { fs.copyFileSync(STORE_FILE, STORE_FILE + ".bak"); } catch { /* nothing to keep */ }
+    }
+  }
 }
 
 let saveTimer = null;
@@ -746,11 +761,36 @@ function sessionRunner(s, agent = null) {
 loadStore();
 
 
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
 function readBody(req) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let data = "";
-    req.on("data", (c) => (data += c));
+    let size = 0;
+    let settled = false;
+    const fail = (statusCode, message) => {
+      if (settled) return;
+      settled = true;
+      const e = new Error(message);
+      e.statusCode = statusCode;
+      reject(e);
+    };
+    req.on("data", (c) => {
+      if (settled) return;
+      size += c.length;
+      if (size > MAX_BODY_BYTES) {
+        fail(413, "request body too large");
+        // Drain the rest without keeping it, so the 413 can still be written
+        // on this socket instead of resetting the connection.
+        req.resume();
+        return;
+      }
+      data += c;
+    });
+    req.on("error", () => fail(400, "request failed"));
+    req.on("aborted", () => fail(400, "request aborted"));
     req.on("end", () => {
+      if (settled) return;
+      settled = true;
       try { resolve(data ? JSON.parse(data) : {}); } catch { resolve({}); }
     });
   });
@@ -1502,11 +1542,9 @@ async function route(req, res) {
   if (req.method === "GET" && url.pathname === "/api/sessions/messages") {
     const s = sessions.get(url.searchParams.get("id"));
     if (!s) return sendJSON(res, 404, { error: "no such session" });
-    // The file tree, previews and terminal follow the session the user opens.
-    if (s.cwd && fs.existsSync(s.cwd)) {
-      ROOT = s.cwd;
-      mcpManager.setRoot(ROOT);
-    }
+    // Reading a transcript must not move the server-wide root: two switches
+    // can race. The client activates the root after it has painted the
+    // session (POST /api/setroot), so the file tree still follows the open tab.
     // The client rebuilds the transcript from this: no system prompt; tool
     // results stay (flagged) so tool rows and ask-card answers replay, and
     // `ui` carries the cards that were never model messages (thinking,
@@ -1610,11 +1648,11 @@ async function route(req, res) {
     const turnTarget = selectedAgent
       ? agentTurnTarget(selectedAgent, { provider, model, apiKey: effectiveKey, baseUrl: effectiveBaseUrl })
       : { provider, model, apiKey: effectiveKey, baseUrl: effectiveBaseUrl };
-    subagentCtx = {
+    subagentContexts.set(session.id, {
       root: sessionRoot(session),
       provider: turnTarget.provider, model: turnTarget.model,
       apiKey: turnTarget.apiKey, baseUrl: turnTarget.baseUrl,
-    };
+    });
 
     // Refresh the system prompt so mode/memory changes take effect. Chat
     // sessions use chatSystemPrompt(); code sessions keep the coding prompt.
@@ -1628,6 +1666,23 @@ async function route(req, res) {
     };
 
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+    // A closed tab must not leave a provider request running (or a permission
+    // promise waiting forever). Abort the turn and settle every open card.
+    let clientGone = false;
+    const clientGoneNow = () => {
+      clientGone = true;
+      for (const c of session.aborts) c.abort = true;
+      for (const resolve of session.pending.values()) {
+        try { resolve({ allowed: false, scope: "once" }); } catch { /* settled */ }
+      }
+      session.pending.clear();
+      for (const resolve of session.asks.values()) {
+        try { resolve([]); } catch { /* settled */ }
+      }
+      session.asks.clear();
+    };
+    res.on("close", clientGoneNow);
+    res.on("error", clientGoneNow);
     // In-flight marker: persisted with the session, cleared when the turn
     // ends. If the app (or the machine) dies mid-turn, the next boot sees it
     // and continues the conversation where it stopped. (session.pending is
@@ -1651,7 +1706,9 @@ async function route(req, res) {
         if (thinkAcc.trim()) pushUi(session, { type: "thinking", after: uiAfter(session), ms: Number(evt.ms) || 0, text: thinkAcc.slice(0, 2500) });
         thinkAcc = "";
       }
-      res.write(`data: ${JSON.stringify(evt)}\n\n`);
+      if (!clientGone) {
+        try { res.write(`data: ${JSON.stringify(evt)}\n\n`); } catch { clientGone = true; }
+      }
     };
     emit({ type: "session", sessionId: session.id, kind: session.kind, root: sessionRoot(session), title: session.title, mode: session.mode, agent: selectedAgent ? selectedAgent.name : null });
     pluginManager.fire("turn_start", {
@@ -1703,6 +1760,7 @@ async function route(req, res) {
     session.messages[0] = { role: "system", content: sessionSystemContent(session) };
     session.updated = Date.now();
     session.activeTurn = 0;
+    subagentContexts.delete(session.id);
     askTurns.delete(session.id);
     pluginManager.fire("turn_end", { sessionId: session.id, kind: session.kind, aborted: !!controller.abort });
     persist();
@@ -1784,6 +1842,11 @@ async function route(req, res) {
     return sendJSON(res, 200, { ok: true });
   }
 
+  if (req.method === "POST" && url.pathname === "/api/flush") {
+    flushStore();
+    return sendJSON(res, 200, { ok: true });
+  }
+
   if (req.method === "POST" && url.pathname === "/api/reset") {
     const { sessionId } = await readBody(req);
     if (sessionId && sessions.has(sessionId)) {
@@ -1805,11 +1868,16 @@ async function handler(req, res) {
   try {
     await route(req, res);
   } catch (e) {
-    try { sendJSON(res, 500, { error: e.message }); } catch { /* headers already sent */ }
+    try { sendJSON(res, e && e.statusCode ? e.statusCode : 500, { error: e.message }); } catch { /* headers already sent */ }
   }
 }
 process.on("unhandledRejection", (e) => {
   console.error("unhandled rejection:", e?.message || e);
+});
+// A stray throw in a timer or stream callback must not take the whole desktop
+// process down; log it and keep serving. The HTTP guard above handles routes.
+process.on("uncaughtException", (e) => {
+  console.error("uncaught exception:", e?.stack || e?.message || e);
 });
 
 /**

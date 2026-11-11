@@ -1231,6 +1231,28 @@ try {
     cl.entries.every((e) => /^\d+\.\d+\.\d+$/.test(e.version) && Array.isArray(e.notes) && e.notes.length > 0));
   ok("the newest entry is the running version", cl.entries[0].version === cl.version, cl.entries[0].version + " vs " + cl.version);
 
+  /* ------------------------------ stability ------------------------------ */
+  const flush = await fetch(s.url + "/api/flush", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  ok("POST /api/flush writes the store and answers", flush.ok && (await flush.json()).ok === true);
+
+  // Reading a transcript must not move the server root (two switches raced).
+  const rootBefore = getRoot();
+  const mk = await fetch(s.url + "/api/sessions/new", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: "Root isolation", kind: "code", cwd: dataDir }),
+  });
+  const made = await mk.json();
+  await fetch(s.url + "/api/sessions/messages?id=" + encodeURIComponent(made.id));
+  ok("reading a transcript leaves the server root alone", getRoot() === rootBefore, getRoot() + " vs " + rootBefore);
+
+  // An oversized body is refused with a status, not a dropped socket.
+  const huge = "x".repeat(2 * 1024 * 1024 + 64);
+  const over = await fetch(s.url + "/api/command", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "help", args: huge }),
+  });
+  ok("an oversized request body is refused with 413", over.status === 413, String(over.status));
+
   const bad = await fetch(s.url + "/api/nope");
   ok("unknown route 404s", bad.status === 404);
 } finally {

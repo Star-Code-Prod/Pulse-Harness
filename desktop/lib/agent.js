@@ -1228,6 +1228,7 @@ export async function runAgentTurn({
   let softRetries = 0;    // stream dropped before the first byte
   let silentRetries = 0;  // model answered with neither prose nor a tool call
   let promiseRetries = 0; // model announced a tool action but emitted no call
+  let toolCallSeq = 0;    // ids let parallel result events settle the right row
 
   /** Shared tail of tool handling: clip, dedupe, emit and record one result.
    *  The sequential path and parallel fleets both settle through here. */
@@ -1237,7 +1238,7 @@ export async function runAgentTurn({
     // identical bytes already in the transcript (and not pruned) are not
     // paid for twice: push a stub that points back at them instead
     const reused = hasIdenticalToolResult(messages, body);
-    const event = { type: "tool_result", name: call.name, status: allowed ? "ok" : "denied", preview: clipped.slice(0, 1200) };
+    const event = { type: "tool_result", id: call.id, name: call.name, status: allowed ? "ok" : "denied", preview: clipped.slice(0, 1200) };
     if (reused) event.reused = true;
     emit(event);
     messages.push({ role: "user", content: reused ? identicalReuseStub(call.name, str.length) : body });
@@ -1361,6 +1362,7 @@ export async function runAgentTurn({
     }
 
     let { text, calls, todos } = parseAssistantContent(full);
+    for (const c of calls) c.id = "tc" + (++toolCallSeq);
     if (full.trim()) messages.push({ role: "assistant", content: full });
 
     if (todos) emit({ type: "todos", todos });
@@ -1415,7 +1417,7 @@ export async function runAgentTurn({
         !runner.isDangerous(c.name))
     ) {
       for (const call of calls) {
-        emit({ type: "tool", name: call.name, args: call.args, dangerous: false, allowed: true, status: "running" });
+        emit({ type: "tool", id: call.id, name: call.name, args: call.args, dangerous: false, allowed: true, status: "running" });
       }
       const results = await Promise.all(calls.map((c) => Promise.resolve()
         .then(() => runner.run(c.name, c.args))
@@ -1428,7 +1430,7 @@ export async function runAgentTurn({
       const decision = decisionFor(mode, call.name, autoAllow, call.args);
 
       if (decision === "deny") {
-        emit({ type: "tool", name: call.name, args: call.args, dangerous: true, allowed: false, status: "denied" });
+        emit({ type: "tool", id: call.id, name: call.name, args: call.args, dangerous: true, allowed: false, status: "denied" });
         messages.push({
           role: "user",
           content: TOOL_RESULT_PREFIX + call.name +
@@ -1447,7 +1449,7 @@ export async function runAgentTurn({
       }
 
       const snapshot = runner.isDangerous(call.name) && allowed ? await safeRead(runner, call) : null;
-      emit({ type: "tool", name: call.name, args: call.args, dangerous: runner.isDangerous(call.name), allowed, status: allowed ? "running" : "denied" });
+      emit({ type: "tool", id: call.id, name: call.name, args: call.args, dangerous: runner.isDangerous(call.name), allowed, status: allowed ? "running" : "denied" });
 
       let result;
       if (!allowed) {

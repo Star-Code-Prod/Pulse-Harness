@@ -4151,6 +4151,14 @@ function blenderOn(on) {
   }
 }
 document.querySelectorAll("[data-blender]").forEach(b => b.addEventListener("click", () => blenderOn(!blenderActive)));
+// A hard tab close can land inside the server's 400ms save debounce: ask it
+// to flush now. sendBeacon survives the unload; without it, a keepalive fetch.
+window.addEventListener("pagehide", () => {
+  try {
+    if (navigator.sendBeacon) navigator.sendBeacon("/api/flush", new Blob(["{}"], { type: "application/json" }));
+    else fetch("/api/flush", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: "{}" });
+  } catch { /* the debounce will still write on the next boot */ }
+});
 document.addEventListener("visibilitychange", () => {
   if (!blenderActive) return;
   if (document.hidden) { clearInterval(blenderTimer); blenderTimer = 0; }
@@ -4562,12 +4570,34 @@ function closeSplit() {
 }
 $("splitClose").addEventListener("click", () => { closeSplit(); setTimeout(refocusComposerIfIdle, 0); });
 
+/** fetch + JSON with a hard timeout, so a dead or slow server cannot leave a
+ *  control spinning forever. Throws on non-2xx and on malformed JSON. */
+async function fetchJSON(url, opts = {}, timeoutMs = 15000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...opts, signal: opts.signal || ctrl.signal });
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { throw new Error("invalid JSON from " + url); }
+    if (!res.ok) throw new Error((data && data.error) || "HTTP " + res.status);
+    return data;
+  } catch (e) {
+    if (e && e.name === "AbortError") throw new Error("the request timed out");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+let sessionSwitchToken = 0;
 async function switchSession(id) {
   if (!id || id === sessionId) return;
+  // Two fast clicks can resolve out of order; only the newest switch paints.
+  const token = ++sessionSwitchToken;
   try {
-    const res = await fetch("/api/sessions/messages?id=" + encodeURIComponent(id));
-    const j = await res.json();
-    if (!res.ok) return toast(j.error || "Could not open that session");
+    const j = await fetchJSON("/api/sessions/messages?id=" + encodeURIComponent(id));
+    if (token !== sessionSwitchToken) return;
     sessionId = id;
     state.lastSession = id;
     save();
@@ -4590,7 +4620,9 @@ async function switchSession(id) {
     const live = liveTurns.get(id);
     if (live && live.running) {
       if (!(j.messages || []).length) showChat();   // brand-new session mid-first-turn
-      for (const e of live.events) handle(e);       // counts fold onto the hydrated base
+      for (const e of live.events) {                // counts fold onto the hydrated base
+        try { handle(e); } catch (err) { console.error("replay event failed:", err); }
+      }
     } else if (live) {
       liveTurns.delete(id);
     }
@@ -4600,6 +4632,13 @@ async function switchSession(id) {
     unreadIds = unreadIds.filter((x) => x !== id);
     saveLocalSessionFlags();
     renderSessions();
+    // Reading a transcript no longer moves the server root (that raced other
+    // switches), so activate the session's folder here, after it painted.
+    if (j.kind === "code" && j.cwd) {
+      fetch("/api/setroot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: j.cwd }) })
+        .then(() => { if (token === sessionSwitchToken) loadTree(); })
+        .catch(() => { /* the tree keeps its previous root */ });
+    }
     if (!booting) toast("Opened “" + (j.title || "session") + "”");
     // A turn was cut off when the app closed: continue it right here, as if
     // the reply had simply waited for you (no new message is sent).
@@ -4608,7 +4647,8 @@ async function switchSession(id) {
       sendToAgent("", { resume: true });
     }
   } catch (e) {
-    toast("Could not open that session");
+    if (token !== sessionSwitchToken) return;
+    toast(/timed out/.test(String(e && e.message)) ? "The server did not answer — try again" : "Could not open that session");
   }
 }
 
@@ -8187,12 +8227,20 @@ function endThinking(ms) {
   // still hand over control markup; the row shows prose or nothing.
   const clean = stripBlocks(cur.text);
   if (clean !== it.out.textContent) it.out.textContent = clean;
-  if (!clean.trim()) { it.el.remove(); proc.items.splice(proc.items.indexOf(it), 1); procSummary(); return; }
+  if (!clean.trim()) {
+    it.el.remove();
+    if (proc && proc.items) {
+      const i = proc.items.indexOf(it);
+      if (i >= 0) proc.items.splice(i, 1);
+      procSummary();
+    }
+    return;
+  }
   it.elapsed = Math.max(0, ms || (performance.now() - thinkStart));
   it.state = "ok";
   it.dsc.textContent = thinkingGist(clean);
   procPaint(it);
-  procSummary();
+  if (proc) procSummary();
   scrollDown();
 }
 
@@ -8211,7 +8259,7 @@ function ensureToolGroup() {
   return toolGroup;
 }
 
-function addTool({ name, args, status, detail }) {
+function addTool({ name, args, status, detail, id }) {
   ensureToolGroup();
   const [, past] = ICONS[name] || [name, name];
   let arg = "";
@@ -8223,6 +8271,7 @@ function addTool({ name, args, status, detail }) {
   }
   const it = procRow("tool", past);
   it.name = name;
+  it.callId = id || "";
   it.arg = arg;
   it.dsc.textContent = arg;
   it.dsc.title = arg;
@@ -8248,9 +8297,13 @@ function tickTools() {
   procSummary();
 }
 
-function finishTool(status, preview) {
-  if (!toolGroup || !toolGroup.items.length) return;
-  const last = [...toolGroup.items].reverse().find(i => i.state === "running");
+function finishTool(status, preview, id) {
+  const items = toolGroup && toolGroup.items ? toolGroup.items : (proc ? proc.items : []);
+  if (!items.length) return;
+  // Parallel calls finish out of order; the id picks the right row. Old
+  // sessions without ids (and replay) fall back to the last running tool.
+  const matched = id ? items.find(i => i.callId === id && i.state === "running") || items.find(i => i.callId === id) : null;
+  const last = matched || [...items].reverse().find(i => i.state === "running");
   if (!last) return;
   const body = state.verbosity === "minimal" ? "" : (preview || "");
   last.detail = body;
@@ -9026,10 +9079,13 @@ async function handleCommand(text) {
   if (name === "compact") return sendToAgent("Summarize our conversation into a compact brief preserving decisions, file paths, and open tasks.");
   if (name === "init") return sendToAgent("Create a STAR.md file documenting this project: purpose, structure, how to build/test, and conventions. Write the file.");
   if (name === "review") return sendToAgent("Review the uncommitted changes: run `git diff`, then report correctness issues, risks, and suggested fixes grouped by file.");
-  const r = await fetch("/api/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, name, args: arg }) });
-  const j = await r.json();
-  say(j.text || j.error || "(no output)");
-  if (name === "memory" && j.text) renderPlan(j.text);
+  try {
+    const j = await fetchJSON("/api/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, name, args: arg }) });
+    say(j.text || j.error || "(no output)");
+    if (name === "memory" && j.text) renderPlan(j.text);
+  } catch {
+    say("Could not reach the server for that command.");
+  }
 }
 function say(t) { startAssistant(); toolGroup = null; proc = null; currentMsg._t = t; setMsgHtml(currentMsg, md(t)); wireCopy(currentMsg); endAssistant(); }
 async function sendToAgent(message, opts = {}) {
@@ -9083,6 +9139,7 @@ async function sendToAgent(message, opts = {}) {
         // the person is looking at it, it IS the current session.
         if (!sid && evt.sessionId) { sid = evt.sessionId; sessionId = sid; liveTurns.set(sid, live); renderSessions(); state.lastSession = sid; save(); }
         live.events.push(evt);
+        if (live.events.length > 5000) live.events.splice(0, live.events.length - 5000);
         // The sidebar's Needs input group watches the wire: a pending
         // question or permission lifts the session, answering drops it.
         if (evt.type === "question" || evt.type === "permission_request") {
@@ -9092,7 +9149,10 @@ async function sendToAgent(message, opts = {}) {
           liveInput.delete(sid);
           renderSessions();
         }
-        if (sid === sessionId) handle(evt);          // visible: paint live
+        if (sid === sessionId) {
+          // One bad event must never kill the stream loop: the turn keeps going.
+          try { handle(evt); } catch (err) { console.error("render event failed:", err); }
+        }
         if (evt.type === "done") { sawDone = true; finishLive(sid); break; }
       }
       if (liveTurns.get(sid) !== live) break;        // aborted or superseded
@@ -9176,8 +9236,8 @@ function handle(evt) {
       }
       break;
     case "permission_request": setActivity("waiting for your permission"); askPermission(evt); break;
-    case "tool": sessStats.tools[evt.name] = (sessStats.tools[evt.name] || 0) + 1; setActivity(activityForTool(evt.name)); addTool({ name: evt.name, args: evt.args, status: evt.allowed === false ? "denied" : "running", detail: "" }); break;
-    case "tool_result": setActivity("analyzing"); finishTool(evt.status, evt.preview); break;
+    case "tool": sessStats.tools[evt.name] = (sessStats.tools[evt.name] || 0) + 1; setActivity(activityForTool(evt.name)); addTool({ name: evt.name, args: evt.args, status: evt.allowed === false ? "denied" : "running", detail: "", id: evt.id }); break;
+    case "tool_result": setActivity("analyzing"); finishTool(evt.status, evt.preview, evt.id); break;
     case "retry": setActivity("retrying " + evt.attempt + "/" + evt.max); break;
     case "subagent": {
       if (evt.phase === "start") {
@@ -9444,7 +9504,12 @@ $("bigSend").addEventListener("click", () => {
 $("bigInput").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("bigSend").click(); }
 });
-function abort() { userAborted = true; fetch("/api/abort", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId }) }); }
+function abort() {
+  userAborted = true;
+  // A dead server must not turn a local stop into an unhandled rejection.
+  fetch("/api/abort", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId }) })
+    .catch(() => { /* the local stop still applies */ });
+}
 
 /* ---- composer state: send/stop button + the working indicator ---- */
 let workTimer = null, workStart = 0;

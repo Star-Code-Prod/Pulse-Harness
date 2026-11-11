@@ -4,6 +4,7 @@
 import fs from "node:fs";
 
 const html = fs.readFileSync("public/index.html", "utf8");
+const agentJs = fs.readFileSync("lib/agent.js", "utf8");
 const start = html.lastIndexOf("<script>") + 8;
 const end = html.lastIndexOf("</script>");
 const js = html.slice(start, end);
@@ -266,7 +267,8 @@ ok("sessions stream in the background while you switch",
   js.includes("let liveTurns = new Map()") && js.includes("const isStreaming = (id)") &&
   !fnBody("async function switchSession(").includes("Wait for the current reply"));
 ok("a live turn replays into the transcript on switch",
-  fnBody("async function switchSession(").includes("for (const e of live.events) handle(e)"));
+  fnBody("async function switchSession(").includes("for (const e of live.events)") &&
+  fnBody("async function switchSession(").includes("handle(e)"));
 ok("superseded readers stop cleanly", fnBody("async function sendToAgent(").includes("liveTurns.get(sid) !== live"));
 ok("the update log uses the persisted last-seen version",
   js.includes("function openWhatsNew(") && js.includes("function versionNewer(") &&
@@ -567,6 +569,16 @@ ok("process rows are a timeline, not a card",
   /\.proc\{[^}]*border:0/.test(html.replace(/\s+/g, "")) &&
   /\.proc\.open\.proc-b\{[^}]*border-left:1pxsolid/.test(html.replace(/\s+/g, "")) &&
   /\.prow\{[^}]*min-height:28px/.test(html.replace(/\s+/g, "")));
+ok("parallel tool results settle the row with the matching call id",
+  js.includes('it.callId = id || ""') && js.includes("i.callId === id") &&
+  agentJs.includes("id: call.id"));
+ok("a stale session switch cannot paint over a newer one",
+  js.includes("let sessionSwitchToken = 0") && js.includes("token !== sessionSwitchToken"));
+ok("client requests carry a timeout",
+  js.includes("async function fetchJSON(") && js.includes("ctrl.abort()") &&
+  js.includes("clearTimeout(timer)"));
+ok("a server-down abort does not reject unhandled",
+  /fetch\("\/api\/abort"[\s\S]{0,240}?\.catch\(/.test(js));
 ok("a pick per question sends; multiSelect still uses Submit",
   js.includes("const anyMulti = qs.some((q) => q.multiSelect)") &&
   js.includes("(qs.length === 1 && !multi) || (allSingle && ready)") &&
