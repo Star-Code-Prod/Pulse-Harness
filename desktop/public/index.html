@@ -575,6 +575,11 @@ body.mode-chat #navProjects{display:none}
   display:block;margin:2px 0 5px 9px;padding-left:17px;
   border-left:1px solid var(--border);
 }
+.proc.empty{display:none}
+/* Reasoning has no second fold: opening the round shows the prose directly. */
+.pitem.thought .prow{display:none}
+.pitem.thought .pdet{display:block;padding:3px 7px 9px 10px}
+.proc-b .pitem + .pitem{border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
 .pitem{border-top:0}
 .prow{
   display:flex;align-items:center;gap:8px;width:100%;min-height:28px;padding:2px 7px;margin-left:-7px;text-align:left;
@@ -8043,13 +8048,21 @@ function procLive() {
 function procSummary() {
   if (!proc) return;
   const live = procLive();
+  const thoughts = proc.items.filter((i) => i.kind === "thought").length;
+  const tools = proc.items.filter((i) => i.kind === "tool").length;
   const total = live
     ? Date.now() - proc.started
     : proc.items.reduce((n, i) => n + (i.elapsed || 0), 0);
-  const hasTools = proc.items.some((i) => i.kind === "tool");
-  proc.sum.textContent = proc.items.length
-    ? (live ? (hasTools ? "Working for " : "Analyzing for ") : "Worked for ") + fmtDur(total)
-    : "Analyzing…";
+  // One quiet row per round, like the desktop app: the folded line says what
+  // happened and how long it took; the detail waits behind the chevron.
+  let label = "";
+  if (proc.items.length) {
+    if (live) label = (tools ? "Working… " : "Thinking… ") + fmtDur(total);
+    else if (thoughts) label = "Thought for " + fmtDur(total);
+    else label = "Used " + tools + " tool" + (tools === 1 ? "" : "s");
+    if (thoughts && tools && !live) label += " · " + tools + " tool" + (tools === 1 ? "" : "s");
+  }
+  proc.sum.textContent = label;
   proc.sum.title = procCount() || "";
   proc.node.classList.toggle("live", live);
   proc.node.classList.toggle("empty", !proc.items.length);
@@ -8061,14 +8074,13 @@ function ensureProc(append) {
   if (proc && proc.node.isConnected) return proc;
   const n = node("proc");
   n.innerHTML = `
-    <button class="proc-h" type="button" aria-expanded="true">
+    <button class="proc-h" type="button" aria-expanded="false">
       <span class="pdot"></span>
-      <span class="psum">Working…</span>
+      <span class="psum">Thinking…</span>
       <span class="pchev"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l4 4-4 4"/></svg></span>
     </button>
     <div class="proc-b"></div>`;
   if (!append && currentMsg && currentMsg.parentNode === $("stream")) $("stream").insertBefore(n, currentMsg);
-  n.classList.add("open");
   n.querySelector(".proc-h").addEventListener("click", () => {
     n.classList.toggle("open");
     n.querySelector(".proc-h").setAttribute("aria-expanded", n.classList.contains("open") ? "true" : "false");
@@ -8320,7 +8332,12 @@ function addTool({ name, args, status, detail, id }) {
     if (name === "run_command") arg = args.command || "";
     else if (args.path) arg = args.path;
     else if (args.pattern) arg = args.pattern;
-    else arg = Object.entries(args).map(([k, v]) => `${k}=${String(v).slice(0, 36)}`).join(" ");
+    else arg = Object.entries(args).slice(0, 4).map(([k, v]) => {
+      const shown = Array.isArray(v) ? v.length + " item" + (v.length === 1 ? "" : "s")
+        : v && typeof v === "object" ? "{…}"
+        : String(v).slice(0, 36);
+      return k + "=" + shown;
+    }).join(" ");
   }
   const it = procRow("tool", past);
   it.name = name;

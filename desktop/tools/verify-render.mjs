@@ -544,9 +544,17 @@ ok("fullscreen sits below the titlebar strip",
 ok("the process header counts the round",
   js.includes("function procCount(") && js.includes('" thought" + (t === 1 ? "" : "s")') &&
   js.includes('" tool call" + (n === 1 ? "" : "s")'));
-ok("the process header reads Analyzing/Worked for the round duration",
-  js.includes('"Analyzing for "') && js.includes('"Working for "') &&
-  js.includes('"Worked for "') && js.includes("fmtDur(total)"));
+ok("the process header reads Thought for/Used the round duration",
+  js.includes('"Thought for "') && js.includes('"Used "') &&
+  js.includes('"Thinking… "') && js.includes("fmtDur(total)"));
+ok("a round is folded by default and hides when empty",
+  js.includes('aria-expanded="false"') && !js.includes('n.classList.add("open")') &&
+  html.includes(".proc.empty{display:none}"));
+ok("reasoning prose needs no second fold",
+  html.includes(".pitem.thought .prow{display:none}") &&
+  html.includes(".pitem.thought .pdet{display:block"));
+ok("tool arg previews summarize arrays and objects",
+  js.includes('Array.isArray(v) ? v.length + " item"') && js.includes('typeof v === "object" ? "{…}"'));
 ok("process rows carry no shadow",
   !/\.pitem\.thought \.prow\{[^}]*box-shadow/.test(html.replace(/\s+/g, " ")) &&
   !/\.proc::after\{/.test(html.replace(/\s+/g, "")));
