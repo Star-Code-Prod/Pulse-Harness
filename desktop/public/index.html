@@ -1849,8 +1849,8 @@ textarea.inp{line-height:1.6;resize:vertical}
 @media(max-width:1240px){.panes{width:min(var(--pane-w,420px),340px)}}
 @media(max-width:1000px){
   .panes{
-    position:fixed;top:0;right:0;bottom:0;width:min(420px,88vw);z-index:45;
-    margin:0;border-radius:0;border-left:1px solid var(--border2);
+    position:fixed;top:52px;right:0;bottom:0;width:min(420px,88vw);z-index:45;
+    margin:0;border-radius:0;border:0;border-left:1px solid var(--border2);
     transform:translateX(100%);visibility:hidden;
     transition:transform var(--t-slow) var(--ease),visibility var(--t-slow);
   }
@@ -1979,14 +1979,27 @@ body.files-open .sb-tree{display:block}
 .btn.pri{background:var(--brand);border-color:var(--brand);color:var(--brand-fg)}
 .btn.pri:hover{background:var(--brand-strong);border-color:var(--brand-strong)}
 .btn.sm{padding:5px 10px}
-.panes{margin:16px 16px 16px 0;border-radius:16px;border-color:color-mix(in srgb,var(--border) 70%,transparent);background:var(--sidebar)}
-.pane-tabs{height:52px;padding:0 14px;border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent)}
-.pane-body{padding:10px;gap:8px}
-.pane-row{border-radius:12px;border-color:color-mix(in srgb,var(--border) 70%,transparent);background:var(--panel)}
-.pane-row.active{border-color:var(--border2)}
-.pane-sub{height:42px;padding:0 10px;background:var(--panel)}
-.pane-sub .btn{padding:4px 10px;font-size:11px}
-.pane-x{width:26px;height:26px;border-radius:6px}
+.panes{margin:0;border:0;border-left:1px solid var(--border);border-radius:0;background:var(--bg)}
+.pane-tabs{height:46px;padding:0 8px;border-bottom:1px solid var(--border);background:var(--bg);gap:4px}
+.ptab-scroll{display:flex;align-items:center;gap:2px;min-width:0;overflow-x:auto;scrollbar-width:none}
+.ptab-scroll::-webkit-scrollbar{height:0}
+.ptab{display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:6px;flex:none;font-size:12.5px;color:var(--muted);white-space:nowrap;transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+.ptab:hover{background:var(--hover);color:var(--text2)}
+.ptab.on{background:var(--panel);color:var(--text);font-weight:500}
+.ptab .badge{font-family:var(--font-mono);font-size:10px;padding:0 5px;border-radius:999px;background:var(--chip-on);color:var(--text2);min-width:16px;text-align:center}
+.pane-tabs .pane-x{width:28px;height:28px;border-radius:6px}
+.pane-tabs .paneAdd{width:28px;height:28px;border-radius:6px}
+.pane-tabs .pane-review{padding:4px 10px;font-size:11px;border-radius:999px}
+.pane-body{padding:0;gap:0;background:var(--bg);overflow:hidden}
+.pane-row{display:none;flex:1;min-height:0;border:0;border-radius:0;background:var(--bg);overflow:hidden}
+.pane-row.open{display:none}
+#paneBody .pane-row.open.active,
+#paneBody .pane-row[data-pane="preview"].open.active,
+#paneBody.solo .pane-row.open.active{display:flex;flex:1 1 auto;min-height:0;animation:fadeIn var(--t-mid) var(--ease)}
+.pane-sub{display:none}
+.pane-grip-b{display:none}
+.pane-row[data-pane="preview"] .pane-b{height:auto;flex:1;overflow:auto;overflow-x:hidden}
+.pane-row[data-pane="preview"].empty .pane-b{display:flex;align-items:center;justify-content:center;flex:1;height:auto;overflow:visible}
 .projpop-box,.cmodal{border-radius:16px;border-color:var(--border);background:var(--panel);box-shadow:var(--shadow-md)}
 .cm-field input,.cm-field textarea,.cm-field select{border-color:var(--border);background:var(--bg)}
 .cm-h .conn-ico{border-radius:10px}
@@ -2043,9 +2056,13 @@ body:not(.rail) .sb-nav-row.on svg,body:not(.rail) .sb-nav-row:hover svg{color:v
 .btn.pri:hover{background:var(--brand-strong);border-color:var(--brand-strong)}
 .kbdh,.kbdh.ready{background:transparent;color:var(--text)}
 .kbdh:hover,.kbdh.ready:hover{background:var(--hover);color:var(--text)}
+.kbdh.stop,.kbdh.ready.stop{background:transparent;color:var(--text);border:0}
+.kbdh.stop:hover,.kbdh.ready.stop:hover{background:var(--hover);color:var(--text)}
+.kbdh.stop .ic-stop{width:11px;height:11px}
 .cbtn.send{background:transparent;color:var(--text);margin-left:5px}
 .cbtn.send:hover{background:var(--hover);color:var(--text)}
-#kbdHint{margin-left:3px}
+#kbdHint{margin-left:4px}
+@media(max-width:560px){#cPanels{display:none}}
 .msg-u .b{background:var(--panel2)}
 body:not(.rail) .sess.on{background:var(--panel)}
 body:not(.rail) .sess.on::before{background:var(--text2)}
@@ -2087,8 +2104,9 @@ body:not(.rail) .sess.on{background:var(--panel2)}
 .bigbox,.cwrap{border-radius:14px;border-color:var(--border);background:var(--panel);box-shadow:none}
 .bigbox{width:min(760px,100%);padding:12px 14px 8px}
 .bigbox textarea{min-height:40px;font-size:15px}
-.cwrap{padding:12px 12px 8px}
-.crow{margin-top:5px}
+.cwrap{padding:12px 14px 10px}
+.cbox textarea{min-height:42px;padding:2px 2px 0}
+.crow{margin-top:8px;gap:4px}
 /* Keep the send arrow pinned to the row's right edge; the model label is the
    one control allowed to truncate when space runs out. */
 .bigbox .crow,.cwrap .crow{flex-wrap:nowrap}
@@ -2217,11 +2235,10 @@ body:not(.rail) .sess.on{background:var(--panel2)}
 .art-top{height:56px;padding:0 10px 0 18px}
 .art-card{width:min(1060px,calc(100vw - 72px));height:min(760px,calc(100vh - 72px));border-radius:16px}
 /* Fullscreen preview: cover the whole app below the 52px top bar, not a strip. */
-body.preview-full .panes{position:fixed;inset:52px 0 0 0;width:auto;height:auto;margin:0;border:0;border-radius:0;background:var(--bg);overflow:visible;z-index:60}
-body.preview-full .pane-tabs{display:none}
+body.preview-full .panes{position:fixed;inset:52px 0 0 0;width:auto;height:auto;margin:0;border:0;border-radius:0;background:var(--bg);overflow:hidden;z-index:60}
 body.preview-full .pane-body{padding:0;overflow:hidden}
 body.preview-full .pane-row:not([data-pane="preview"]){display:none!important}
-body.preview-full .pane-row[data-pane="preview"]{position:absolute;inset:0 0 0 0;display:flex;margin:0;border:0;border-radius:0;background:var(--bg)}
+body.preview-full .pane-row[data-pane="preview"]{position:relative;inset:auto;display:flex;flex:1;min-height:0;margin:0;border:0;border-radius:0;background:var(--bg)}
 body.preview-full .pane-row[data-pane="preview"] .pane-b{flex:1;height:auto;overflow:auto}
 body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0 18px;border-bottom:1px solid var(--border);background:var(--bg)}
 @media(max-width:640px){.artifactcard{align-items:flex-start;flex-wrap:wrap}.artifactcard .ac-actions{width:100%;margin-left:39px}.artifactcard .ac-main{width:calc(100% - 41px)}}
@@ -2523,16 +2540,12 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v10M3.5 8.5L8 13l4.5-4.5"/></svg>
       </button>
       <div class="cbox">
-        <button class="cplus" id="cPlus" type="button" title="More: side chat, attach a file, shell command, export, new session" aria-label="More actions">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg>
-        </button>
         <textarea id="input" rows="1" placeholder="Type / for commands" aria-label="Message Pulse Harness"></textarea>
-        <button class="kbdh" id="kbdHint" type="button" title="Send" aria-label="Send message">
-          <svg class="ic-send" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5V2.8M3.2 7.6L8 2.8l4.8 4.8"/></svg>
-          <svg class="ic-stop" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="2" fill="currentColor"/></svg>
-        </button>
       </div>
       <div class="crow">
+        <button class="cbtn ico" id="cPlus" type="button" title="More: side chat, attach a file, shell command, export, new session" aria-label="More actions">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg>
+        </button>
         <button class="cbtn" id="cMode">Ask permissions</button>
         <button class="cbtn" id="cAgent" title="Agent persona for this turn">No agent</button>
         <button class="cbtn ico" id="cPanels" title="Add pane" aria-label="Add a pane">
@@ -2555,6 +2568,10 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
           </svg>
           <span class="tip" id="ringTip">Context —</span>
         </span>
+        <button class="kbdh" id="kbdHint" type="button" title="Send" aria-label="Send message">
+          <svg class="ic-send" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5V2.8M3.2 7.6L8 2.8l4.8 4.8"/></svg>
+          <svg class="ic-stop" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="2" fill="currentColor"/></svg>
+        </button>
       </div>
       <div class="workbar" id="workBar" role="status" aria-live="polite">
         <span class="wdot" aria-hidden="true"></span>
@@ -3739,39 +3756,55 @@ const paneOpen = new Set(["preview", "tasks", "plan", "diff"]);
 const paneBadges = { tasks: 0, diff: 0, terminal: 0, tree: 0 };
 let activePane = "diff";
 
+/** The preview's tab label follows the file/artifact it shows. */
+function setPreviewTitle(t) {
+  const el = $("previewTitle");
+  if (el) el.textContent = t;
+  if (activePane === "preview") renderPaneTabs();
+}
+
 function renderPaneTabs() {
   const host = $("paneTabs");
   if (!host) return;
-  const active = PANE_DEFS.find(d => d.id === activePane);
-  const ab = activePane ? paneBadges[activePane] : 0;
-  // Claude-style rail header: active pane as a title chip with a menu, a
-  // close for the active pane, and a single add button on the right.
+  const defs = [...paneOpen].map((id) => PANE_DEFS.find((d) => d.id === id)).filter(Boolean);
+  // One tab per open pane, then the active pane's own actions, close and add.
+  const tabs = defs.map((d) => {
+    const badge = paneBadges[d.id] || 0;
+    const label = d.id === "preview" ? (($("previewTitle") || {}).textContent || d.label) : d.label;
+    return `<button class="ptab${d.id === activePane ? " on" : ""}" data-tab="${d.id}" title="${esc(label)}">${esc(label)}${badge ? `<span class="badge">${badge > 9 ? "9+" : badge}</span>` : ""}</button>`;
+  }).join("");
+  const extra = activePane === "preview"
+    ? `<button class="pane-x" id="paneBlender" data-blender="1" title="Blender live view (needs a blender MCP server)" aria-label="Toggle Blender live view"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.6" y="3.2" width="12.8" height="9.6" rx="2"/><circle cx="8" cy="8" r="2.6"/></svg></button><button class="pane-x" id="paneFull" data-panefull="preview" title="Fullscreen (Esc to exit)" aria-label="Fullscreen preview"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.2 2.5H2.5v3.7M9.8 2.5h3.7v3.7M6.2 13.5H2.5V9.8M9.8 13.5h3.7V9.8"/></svg></button>`
+    : activePane === "diff"
+    ? `<button class="btn sm pane-review" id="paneReview" type="button">Review code</button>`
+    : "";
   host.innerHTML =
-    `<button class="paneTitle" id="paneTitle" aria-haspopup="menu" title="Switch or open a pane">
-      <span class="lb">${esc(active ? active.label : "Panes")}</span>${ab ? `<span class="badge">${ab > 9 ? "9+" : ab}</span>` : ""}
-      <svg class="chev" width="10" height="10" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 4.5l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>` +
-    `<span class="spacer"></span>` +
+    (defs.length ? `<div class="ptab-scroll">${tabs}</div>` : `<span class="lb">Panes</span>`) +
+    `<span class="spacer"></span>` + extra +
     (activePane
-      ? `<button class="paneX" id="paneX" title="Close panel" aria-label="Close panel"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>`
+      ? `<button class="pane-x" id="paneX" title="Close panel" aria-label="Close panel"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>`
       : "") +
     `<button class="paneAdd" id="paneAdd" title="Open a pane" aria-label="Open a pane"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button>`;
-  $("paneTitle").addEventListener("click", (e) => { e.stopPropagation(); paneTitleMenu($("paneTitle")); });
+  host.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => setActivePane(b.dataset.tab)));
   const x = $("paneX");
   if (x) x.addEventListener("click", () => closePaneTab(activePane));
   const add = $("paneAdd");
   if (add) add.addEventListener("click", (e) => { e.stopPropagation(); paneMenu(add); });
-}
-
-/** The rail header's title menu: every pane, open or not; the active one
- *  ticks and pending counts ride as subs. */
-function paneTitleMenu(anchor) {
-  openMenu(anchor, PANE_DEFS.map(d => ({
-    label: d.label,
-    sub: paneOpen.has(d.id) ? (paneBadges[d.id] ? String(paneBadges[d.id]) : undefined) : "closed",
-    on: d.id === activePane,
-    run: () => (paneOpen.has(d.id) ? setActivePane(d.id) : showPane(d.id)),
-  })));
+  const bl = $("paneBlender");
+  if (bl) {
+    bl.classList.toggle("on", blenderActive);
+    bl.addEventListener("click", (e) => { e.stopPropagation(); blenderOn(!blenderActive); });
+  }
+  const fu = $("paneFull");
+  if (fu) fu.addEventListener("click", (e) => {
+    e.stopPropagation();
+    previewFull(!document.body.classList.contains("preview-full"));
+  });
+  const rv = $("paneReview");
+  if (rv) rv.addEventListener("click", () => {
+    showChat();
+    sendToAgent("Review the uncommitted changes: run `git diff`, then report correctness issues, risks, and suggested fixes grouped by file.");
+  });
 }
 
 function applyActivePane() {
@@ -5131,7 +5164,7 @@ async function previewFile(path) {
   }
   currentFile = { path, kind, content: j.content, error: j.error, office: j.office, pdf: !!j.pdf };
   fileView = { mode: kind === "source" ? "code" : "render" };
-  $("previewTitle").textContent = path;
+  setPreviewTitle(path);
   setPreviewEmpty(false);
   $("filePreview").style.display = "flex";
   renderFilePreview();
@@ -5337,7 +5370,7 @@ function renderFilePreview() {
 function resetPreview() {
   currentFile = null;
   motionCtx = null;
-  $("previewTitle").textContent = "Preview";
+  setPreviewTitle("Preview");
   setPreviewEmpty(true);
   const host = $("filePreview");
   host.style.display = "none";
@@ -6435,8 +6468,8 @@ function renderArtifact() {
   $("filePreview").dataset.working = "";
   showPane("preview");
   const group = artifactGroup(artifactView.i);
-  $("previewTitle").textContent = artifactName(a) +
-    (group.length > 1 ? " · v" + (group.indexOf(artifactView.i) + 1) : "");
+  setPreviewTitle(artifactName(a) +
+    (group.length > 1 ? " · v" + (group.indexOf(artifactView.i) + 1) : ""));
   setPreviewEmpty(false);
   const host = $("filePreview");
   host.style.display = "flex";
@@ -7959,7 +7992,7 @@ function autoOpenArtifactView() {
     return;
   }
   showPane("preview");
-  $("previewTitle").textContent = "Harness is working…";
+  setPreviewTitle("Harness is working…");
   setPreviewEmpty(false);
   const host = $("filePreview");
   host.style.display = "flex";
@@ -9740,7 +9773,8 @@ function setWorking(on) {
   const btn = $("kbdHint");
   clearInterval(workTimer); workTimer = null;
   if (btn) {
-    btn.textContent = on ? "■" : "⏎";
+    // The two SVG icons live in the markup; setting textContent here used to
+    // destroy them and leave a ⏎/■ glyph. The .stop class swaps send/stop.
     btn.classList.toggle("stop", !!on);
     btn.title = on ? "Stop" : "Send";
     btn.setAttribute("aria-label", on ? "Stop the response" : "Send message");

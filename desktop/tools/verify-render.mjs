@@ -540,7 +540,12 @@ ok("text files can be edited and saved from the preview",
   /\.fedit\{/.test(html.replace(/\s+/g, "")));
 ok("fullscreen sits below the titlebar strip",
   /body\.preview-full \.panes\{[^}]*inset:52px 0 0 0/.test(html.replace(/\s+/g, " ")) &&
-  /body\.preview-full \.pane-row\[data-pane="preview"\]\{[^}]*inset:0 0 0 0/.test(html.replace(/\s+/g, " ")));
+  /body\.preview-full \.pane-row\[data-pane="preview"\]\{[^}]*position:relative/.test(html.replace(/\s+/g, " ")));
+ok("the right rail is one tabbed pane",
+  /\.pane-row\.open\{display:none\}/.test(html.replace(/\s+/g, "")) &&
+  /#paneBody \.pane-row\.open\.active[^{]*\{display:flex/.test(html.replace(/\s+/g, " ")) &&
+  js.includes('class="ptab') && js.includes("[data-tab]") &&
+  html.replace(/\s+/g, "").includes(".pane-sub{display:none}"));
 ok("the process header counts the round",
   js.includes("function procCount(") && js.includes('" thought" + (t === 1 ? "" : "s")') &&
   js.includes('" tool call" + (n === 1 ? "" : "s")'));
@@ -690,6 +695,14 @@ ok("the sidebar sorts itself into Needs input / Working / Completed",
 ok("the suggestion card can start the session",
   js.includes("function renderSuggest(") && js.includes('case "session_suggestion": renderSuggest(evt);') &&
   js.includes('"[data-start]")') && js.includes("sendToAgent(msg)") && js.includes('"[data-here]")'));
+ok("the session send control sits in the bottom toolbar",
+  html.indexOf('id="cRing"') < html.indexOf('id="kbdHint"') &&
+  html.indexOf('id="input"') < html.indexOf('id="cPlus"'));
+ok("the send icon survives the streaming state",
+  js.includes('btn.classList.toggle("stop"') && !js.includes('btn.textContent = on ? "■"'));
+ok("the stop control is borderless and keeps its square icon",
+  html.includes(".kbdh.stop,.kbdh.ready.stop{background:transparent") &&
+  html.includes(".kbdh.stop .ic-stop{width:11px;height:11px}"));
 ok("the + opens the composer menu and the arrow is gone",
   !html.includes('id="cMore"') && js.includes('$("cPlus").addEventListener("click"') &&
   js.includes('{ label: "Side chat"') && js.includes('{ label: "Attach file"') &&
