@@ -14,6 +14,8 @@ const serverSource = fs.readFileSync("server.js", "utf8");
 ok("the Chat gate accepts both question and ask_user",
   /CHAT_TOOLS = \[[^\]]*"ask_user"[^\]]*"question"/.test(serverSource) &&
   /aliases = \{ question: "ask_user" \}/.test(serverSource));
+ok("Chat can reach the routine tool",
+  /CHAT_TOOLS = \[[^\]]*"schedule"/.test(serverSource));
 
 // Throwaway data dir so credential checks never touch real state.
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "star-code-server-"));

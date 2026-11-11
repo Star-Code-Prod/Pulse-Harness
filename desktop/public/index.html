@@ -139,6 +139,9 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
 }
 .boot.done{opacity:0;pointer-events:none}
 .boot-in{display:flex;align-items:center;gap:10px;font-size:var(--fs-13)}
+.boot-error{max-width:min(440px,84vw);padding:24px;text-align:center;color:var(--text)}
+.boot-error b{display:block;font-size:15px;margin-bottom:6px}
+.boot-error p{margin:0 0 16px;font-size:13px;line-height:1.55;color:var(--muted);word-break:break-word}
 .boot-star{color:var(--brand);font-size:20px;line-height:1;animation:pulse 1.8s ease-in-out infinite}
 .spinner{
   width:16px;height:16px;flex:none;
@@ -286,6 +289,10 @@ body.mode-chat #navProjects{display:none}
 .sb-sec .spacer{flex:1}
 .sb-sec button{width:26px;height:26px;color:var(--dim);padding:0;border-radius:6px;display:flex;align-items:center;justify-content:center;flex:none}
 .sb-sec button:hover{background:var(--hover);color:var(--text2)}
+/* Header controls stay out of sight until the section is hovered or focused. */
+.sb-sec > button{opacity:0;transition:opacity var(--t-fast) var(--ease)}
+.sb-sec:hover > button,.sb-sec:focus-within > button{opacity:1}
+@media(hover:none){.sb-sec > button{opacity:1}}
 .pf-path{display:flex;align-items:center;gap:4px;min-width:0;max-width:140px;color:var(--dim);cursor:pointer;border-radius:4px}
 .pf-path:hover{color:var(--text)}
 .pf-path svg{flex:none;opacity:.8}
@@ -1456,34 +1463,71 @@ html[data-embed] #splitBox{display:none !important}
 .projpop-add input:focus{border-color:var(--brand-line)}
 .projpop-add .btn{height:32px}
 
-/* ---- routines ---- */
-.routine-box{width:min(620px,100%)}
-.routine-row{display:flex;align-items:center;gap:10px;padding:8px 8px 8px 10px;border-radius:10px}
-.routine-row:hover{background:var(--hover)}
-.routine-row.paused{opacity:.72}
-.rt-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;text-align:left;padding:2px 0}
-.rt-name{font-size:var(--fs-13);color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rt-meta{font-size:var(--fs-11);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
-.routine-row .pill{flex:none}
-.routine-form{display:flex;flex-direction:column;gap:11px;padding:14px}
+/* ---- routines page ---- */
+.routines-page{display:none;flex:1;min-height:0;flex-direction:column;padding:26px 28px 0;overflow:hidden;background:var(--bg)}
+body.routines-view #routinesPage{display:flex}
+body.routines-view #landing,
+body.routines-view #stream,
+body.routines-view #composer,
+body.routines-view #askDock,
+body.routines-view #prbar{display:none!important}
+.rpage-h{display:flex;align-items:flex-end;gap:16px;flex:none;padding-bottom:16px}
+.rpage-title h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.02em;color:var(--text)}
+.rpage-title p{margin:5px 0 0;font-size:13px;line-height:1.5;color:var(--muted);max-width:560px}
+.rpage-tools{display:flex;gap:10px;flex:none;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.rpage-search{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--muted)}
+.rpage-search:focus-within{border-color:var(--brand-line)}
+.rpage-search input{flex:1;min-width:0;border:0;background:transparent;color:var(--text);outline:0;font:inherit;font-size:13px}
+.rpage-proj{height:34px;max-width:280px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--text2);font:inherit;font-size:12.5px}
+.rpage-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,420px);gap:22px;padding:18px 0 22px;overflow:hidden}
+.rpage-list{min-height:0;overflow-y:auto;padding-right:6px}
+.rpage-editor{min-height:0;overflow-y:auto;border-left:1px solid var(--border);padding-left:22px}
+.rpage-group{margin-bottom:20px}
+.rpage-group-h{display:flex;align-items:center;gap:8px;padding:0 2px 7px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--dim)}
+.rpage-group-h .path{font-family:var(--font-mono);font-size:10px;letter-spacing:0;text-transform:none;color:var(--dim);opacity:.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.routine-card{display:flex;align-items:flex-start;gap:12px;padding:11px 12px;border:1px solid transparent;border-radius:10px}
+.routine-card:hover{background:var(--hover)}
+.routine-card.on{border-color:var(--border);background:var(--panel)}
+.routine-card.paused .rc-name{color:var(--muted)}
+.rc-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;text-align:left;padding:0}
+.rc-name{font-size:13.5px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-meta{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-actions{display:flex;align-items:center;gap:6px;flex:none;padding-top:1px}
+.rc-actions .pill{flex:none}
+.rc-actions .btn[disabled]{opacity:.45;cursor:default}
+.rpage-empty{padding:46px 18px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6}
+.rpage-empty b{display:block;margin-bottom:4px;font-size:14px;font-weight:500;color:var(--text2)}
+.red-empty{padding:40px 18px;text-align:center;color:var(--muted);font-size:12.5px;line-height:1.6}
+.red-h{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.red-h h2{flex:1;min-width:0;margin:0;font-size:15px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.routine-form{display:flex;flex-direction:column;gap:11px;padding:0}
 .routine-form label{display:flex;flex-direction:column;gap:5px;font-size:var(--fs-11);color:var(--muted)}
-.routine-form input[type=text],.routine-form textarea{
+.routine-form input[type=text],.routine-form select,.routine-form textarea{
   width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;
   background:var(--bg);color:var(--text);outline:0;font:inherit;font-size:var(--fs-13);
 }
-.routine-form textarea{min-height:110px;resize:vertical;line-height:1.5}
-.routine-form input[type=text]:focus,.routine-form textarea:focus{border-color:var(--brand-line)}
+.routine-form textarea{min-height:120px;resize:vertical;line-height:1.5}
+.routine-form input[type=text]:focus,.routine-form select:focus,.routine-form textarea:focus{border-color:var(--brand-line)}
 .routine-form .routine-check{flex-direction:row;align-items:center;gap:8px;font-size:var(--fs-12);color:var(--text2)}
 .routine-form input[type=checkbox]{accent-color:var(--brand);width:15px;height:15px;margin:0}
-.routine-row .btn[disabled]{opacity:.45;cursor:default}
-.routine-hint{font-size:var(--fs-11);color:var(--dim);margin-top:-4px}
-.routine-actions{display:flex;align-items:center;gap:8px;margin-top:3px}
+.routine-hint{font-size:var(--fs-11);color:var(--dim);margin-top:-4px;line-height:1.5}
+.routine-actions{display:flex;align-items:center;gap:8px;margin-top:4px}
 .routine-actions .spacer{flex:1}
-.routine-hist{border-top:1px solid var(--border);margin-top:4px;padding-top:10px;display:flex;flex-direction:column;gap:5px}
+.routine-hist{border-top:1px solid var(--border);margin-top:6px;padding-top:12px;display:flex;flex-direction:column;gap:6px}
 .routine-hist-h{font-size:var(--fs-11);text-transform:uppercase;letter-spacing:.05em;color:var(--dim)}
 .routine-hist-row{display:flex;align-items:center;gap:8px;font-size:var(--fs-11);color:var(--muted);font-variant-numeric:tabular-nums}
 .routine-hist-row .pill{margin-left:auto}
 .routine-badge{flex:none;font-family:var(--font-mono);font-size:9.5px;color:var(--brand);border:1px solid var(--brand-line);border-radius:999px;padding:1px 5px;margin-left:4px}
+@media(max-width:1200px){
+  .rpage-body{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:14px}
+  .rpage-editor{border-left:0;border-top:1px solid var(--border);padding-left:0;padding-top:16px}
+}
+@media(max-width:700px){
+  .routines-page{padding:18px 14px 0}
+  .rpage-h{align-items:flex-start;flex-direction:column}
+  .rpage-tools{flex-direction:column}
+  .rpage-proj{max-width:none}
+}
 
 /* ============================ COMMAND PALETTE ============================ */
 .cmdp{
@@ -1646,7 +1690,7 @@ textarea.inp{line-height:1.6;resize:vertical}
 .fld label{display:block;font-size:var(--fs-12);color:var(--muted);margin-bottom:6px}
 .tog{
   width:38px;height:22px;border-radius:var(--r-full);background:var(--border2);position:relative;
-  transition:background var(--t-mid) var(--ease);flex:none;cursor:pointer;
+  transition:background var(--t-mid) var(--ease);flex:none;cursor:pointer;border:0;padding:0;
 }
 .tog::after{
   content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:var(--r-full);
@@ -2000,8 +2044,9 @@ body:not(.rail) .sb-nav-row.on svg,body:not(.rail) .sb-nav-row:hover svg{color:v
 .btn.pri:hover{background:var(--brand-strong);border-color:var(--brand-strong)}
 .kbdh,.kbdh.ready{background:transparent;color:var(--text)}
 .kbdh:hover,.kbdh.ready:hover{background:var(--hover);color:var(--text)}
-.cbtn.send{background:transparent;color:var(--text)}
+.cbtn.send{background:transparent;color:var(--text);margin-left:5px}
 .cbtn.send:hover{background:var(--hover);color:var(--text)}
+#kbdHint{margin-left:3px}
 .msg-u .b{background:var(--panel2)}
 body:not(.rail) .sess.on{background:var(--panel)}
 body:not(.rail) .sess.on::before{background:var(--text2)}
@@ -2022,8 +2067,8 @@ body:not(.rail) .sess.on::before{background:var(--text2)}
 .sb-word{font-size:14px;font-weight:600;letter-spacing:-.02em}
 body:not(.rail) .sb-links{padding:2px 0 4px}
 body:not(.rail) .sb-nav{gap:1px}
-body:not(.rail) #navNew{height:38px;background:var(--panel);border:1px solid var(--border);border-radius:9px;color:var(--text);font-weight:600;margin-bottom:3px;padding:0 11px}
-body:not(.rail) #navNew:hover{background:var(--panel2);border-color:var(--border2)}
+body:not(.rail) #navNew{height:32px;background:transparent;border:0;border-radius:8px;color:var(--text2);font-weight:500;margin-bottom:2px;padding:0 9px}
+body:not(.rail) #navNew:hover{background:var(--hover);border-color:transparent;color:var(--text)}
 body:not(.rail) #navNew svg{color:var(--text)}
 body:not(.rail) #navSearch,body:not(.rail) #navProjects,body:not(.rail) #navRoutines{height:32px;color:var(--muted);font-size:12.5px}
 body:not(.rail) .sb-sec{padding-top:9px}
@@ -2032,7 +2077,7 @@ body:not(.rail) .sb-search:focus-within{border-color:var(--border2);background:v
 body:not(.rail) .sess{height:34px}
 body:not(.rail) .sess.on{background:var(--panel2)}
 .starters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-width:560px;width:100%}
-.starters .chip{height:auto;min-height:48px;padding:11px 13px;border-radius:12px;background:var(--panel);border:1px solid var(--border);justify-content:flex-start;text-align:left;font-size:12.5px;color:var(--text2);gap:9px}
+.starters .chip{height:auto;min-height:48px;padding:11px 13px;border-radius:12px;background:transparent;border:1px solid var(--border);justify-content:flex-start;text-align:left;font-size:12.5px;color:var(--text2);gap:9px}
 .starters .chip:hover{background:var(--panel2);border-color:var(--border2);color:var(--text)}
 .starters .chip svg{width:16px;height:16px;color:var(--muted)!important}
 .landing{gap:18px;padding:34px 24px}
@@ -2040,7 +2085,7 @@ body:not(.rail) .sess.on{background:var(--panel2)}
 .landing .lmark img{width:42px;height:42px}
 .landing h1{font-size:26px;font-weight:500;letter-spacing:-.035em}
 .landing .lsub{font-size:13px}
-.bigbox,.cwrap{border-radius:16px;border-color:var(--border);background:var(--panel);box-shadow:0 10px 30px -26px rgba(0,0,0,.55)}
+.bigbox,.cwrap{border-radius:14px;border-color:var(--border);background:var(--panel);box-shadow:none}
 .bigbox{width:min(760px,100%);padding:12px 14px 8px}
 .bigbox textarea{min-height:40px;font-size:15px}
 .cwrap{padding:12px 12px 8px}
@@ -2077,10 +2122,6 @@ body:not(.rail) .sess.on{background:var(--panel2)}
 .perm .ph-t{display:flex;flex-direction:column;gap:1px;min-width:0;margin-right:auto}
 .perm .ph-kicker{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim)}
 .perm .ph-t b{font-size:13px;font-weight:600;color:var(--text);line-height:1.3}
-.perm .ph-tool{font-family:var(--font-mono);font-size:9.5px;color:var(--dim);border:1px solid var(--border);border-radius:999px;padding:3px 7px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis}
-/* The friendly title already names the tool; the raw id only crowds narrow
-   cards, so it steps aside rather than truncating to noise. */
-@media(max-width:640px){.perm .ph-tool{display:none}}
 .perm-grid{display:flex;flex-direction:column;padding:4px 15px}
 .perm-row{display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px;padding:7px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
 .perm-row:last-child{border-bottom:0}
@@ -2429,7 +2470,7 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
           <span class="spacer"></span>
           <button class="cbtn" id="bigModel"><span class="mono" id="bigModelName">—</span></button>
           <button class="cbtn send" id="bigSend" title="Send" aria-label="Send message">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5V3M3.5 7.5L8 3l4.5 4.5"/></svg>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5V2.8M3.2 7.6L8 2.8l4.8 4.8"/></svg>
           </button>
         </div>
       </div>
@@ -2488,7 +2529,7 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
         </button>
         <textarea id="input" rows="1" placeholder="Type / for commands" aria-label="Message Pulse Harness"></textarea>
         <button class="kbdh" id="kbdHint" type="button" title="Send" aria-label="Send message">
-          <svg class="ic-send" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5V3M3.5 7.5L8 3l4.5 4.5"/></svg>
+          <svg class="ic-send" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5V2.8M3.2 7.6L8 2.8l4.8 4.8"/></svg>
           <svg class="ic-stop" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="2" fill="currentColor"/></svg>
         </button>
       </div>
@@ -2533,6 +2574,29 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
       <span class="st" id="prState">Open</span>
       <button id="prClose" title="Dismiss" aria-label="Dismiss changes bar"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
     </div>
+
+    <!-- ==================== ROUTINES PAGE ==================== -->
+    <section class="routines-page" id="routinesPage" aria-label="Routines">
+      <div class="rpage-h">
+        <div class="rpage-title">
+          <h1>Routines</h1>
+          <p>Recurring prompts that run in a project. Each run opens a fresh, tagged session.</p>
+        </div>
+        <span class="spacer"></span>
+        <button class="btn pri" id="routineNew" type="button">New routine</button>
+      </div>
+      <div class="rpage-tools">
+        <label class="rpage-search">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+          <input id="routineSearch" type="search" placeholder="Search routines" autocomplete="off" aria-label="Search routines">
+        </label>
+        <select id="routineProject" class="rpage-proj" aria-label="Project"></select>
+      </div>
+      <div class="rpage-body">
+        <div class="rpage-list" id="routineList"></div>
+        <aside class="rpage-editor" id="routineEditor"></aside>
+      </div>
+    </section>
   </main>
 
   <!-- ==================== PANES (tabbed) ==================== -->
@@ -2641,20 +2705,6 @@ body.preview-full .pane-row[data-pane="preview"] .pane-sub{height:52px;padding:0
       <button class="btn sm" id="projBrowse">Browse…</button>
       <button class="btn pri sm" id="projAddBtn">Open</button>
     </div>
-  </div>
-</div>
-
-<!-- ==================== ROUTINES ==================== -->
-<div class="projpop" id="routinePop" style="display:none">
-  <div class="projpop-box routine-box" role="dialog" aria-modal="true" aria-label="Routines">
-    <div class="projpop-h">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 4.8V8l2.2 1.4"/></svg>
-      <span>Routines</span>
-      <span class="spacer"></span>
-      <button class="btn sm" id="routineNew" type="button">New routine</button>
-      <button class="icon-btn" id="routineClose" title="Close" aria-label="Close routines"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button>
-    </div>
-    <div class="projpop-list" id="routineList"></div>
   </div>
 </div>
 
@@ -3013,12 +3063,48 @@ if (typeof document !== "undefined") {
   document.querySelectorAll(".brand-logo").forEach((img) => { img.src = brandSrc; });
 }
 
+/** A failed request or an uncaught callback error must say so once, not leave
+ *  the UI silently half-updated or the console as the only witness. */
+let lastErrorToastAt = 0;
+let bootHideTimer = 0;
+function reportClientError(where, err) {
+  const msg = String((err && (err.message || (err.reason && err.reason.message))) || err || "Unknown error");
+  if (/ResizeObserver|AbortError|The operation was aborted/i.test(msg)) return;
+  console.error("[" + where + "]", err);
+  if (typeof toast !== "function" || !document.getElementById("toast")) return;
+  const now = Date.now();
+  if (now - lastErrorToastAt < 2500) return;
+  lastErrorToastAt = now;
+  toast("Something went wrong: " + msg.slice(0, 120));
+}
+window.addEventListener("unhandledrejection", (e) => {
+  reportClientError("promise", e.reason);
+  if (e.preventDefault) e.preventDefault();
+});
+window.addEventListener("error", (e) => {
+  if (e && e.error) reportClientError("script", e.error);
+});
+
+/** Boot failed before the shell could render: explain it and offer a retry
+ *  instead of leaving the splash up over a half-initialized app. */
+function showBootError(err) {
+  clearTimeout(bootHideTimer);
+  const b = document.getElementById("boot");
+  if (!b) return;
+  b.classList.remove("done");
+  b.innerHTML = '<div class="boot-error"><b>Pulse Harness could not start</b><p></p><button class="btn pri" id="bootRetry">Retry</button></div>';
+  const p = b.querySelector("p");
+  if (p) p.textContent = String((err && err.message) || err || "The local server did not answer.");
+  const retry = b.querySelector("#bootRetry");
+  if (retry) retry.addEventListener("click", () => location.reload());
+}
+
 (async function boot() {
   // First run? Captured before anything (importLocalKeys, save) can write the
   // key, so we can adopt the CLI's last-used model on a virgin profile only.
   const firstRun = localStorage.getItem(LS) === null;
   // Never let a slow or failed boot leave the splash covering the app.
-  setTimeout(() => { const b = $("boot"); if (b) { b.classList.add("done"); setTimeout(() => b.remove(), 260); } }, 8000);
+  bootHideTimer = setTimeout(() => { const b = $("boot"); if (b) { b.classList.add("done"); setTimeout(() => b.remove(), 260); } }, 8000);
   applyTheme();
   if (bridge) {
     document.body.classList.add("is-electron");
@@ -3033,7 +3119,12 @@ if (typeof document !== "undefined") {
   }
   const sessionsPromise = Promise.resolve().then(() => loadSessions());
   const keysPromise = importLocalKeys();
-  meta = await (await fetch("/api/providers")).json();
+  try {
+    meta = await fetchJSON("/api/providers");
+  } catch (e) {
+    showBootError(e);
+    return;
+  }
   // A fresh profile follows the model the user last picked anywhere (the CLI
   // reports it as meta.lastModel); once a profile exists its own pick wins.
   const lm = meta && meta.lastModel;
@@ -4353,12 +4444,20 @@ function saveLocalSessionFlags() {
   } catch {}
 }
 
+let serverDown = false;
 async function loadSessions() {
   sessionsLoading = true;
   try {
-    const j = await (await fetch("/api/sessions")).json();
+    const j = await fetchJSON("/api/sessions");
     sessionList = j.sessions || [];
-  } catch { sessionList = []; }
+    serverDown = false;
+  } catch (e) {
+    sessionList = [];
+    if (!serverDown) {
+      serverDown = true;
+      toast("The local server is not answering — start it again or reload.");
+    }
+  }
   pendingSessionIds = new Set(sessionList.filter((s) => s.pending).map((s) => s.id));
   // Entries saved before the two-mode desktop have no kind and count as code
   // sessions. Keep `state.sessions` (persisted) in step with the loaded list.
@@ -4650,6 +4749,7 @@ async function fetchJSON(url, opts = {}, timeoutMs = 15000) {
 
 let sessionSwitchToken = 0;
 async function switchSession(id) {
+  closeRoutinesPage();
   if (!id || id === sessionId) return;
   // Two fast clicks can resolve out of order; only the newest switch paints.
   const token = ++sessionSwitchToken;
@@ -8848,8 +8948,7 @@ function permissionHtml(meta, opts = {}) {
   return `
     <div class="ph">
       <span class="ph-ic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.8l5 2.2v4.2c0 3-2.1 5.4-5 6-2.9-.6-5-3-5-6V4z"/><path d="M5.7 8l1.5 1.5 3-3"/></svg></span>
-      <div class="ph-t"><span class="ph-kicker">${verdict ? "Permission" : "Permission needed"}</span><b>${esc(meta.title)}</b></div>
-      <span class="ph-tool" title="${esc(meta.tool)}">${esc(meta.tool)}</span>
+      <div class="ph-t" title="${esc(meta.tool)}"><span class="ph-kicker">${verdict ? "Permission" : "Permission needed"}</span><b>${esc(meta.title)}</b></div>
     </div>
     ${rows}${meta.extras}${footer}`;
 }
@@ -9369,6 +9468,7 @@ function updatePrBar(evt) {
 
 /* ============================ NEW / EXPORT ============================ */
 async function newSession(opts = {}) {
+  closeRoutinesPage();
   // create the session server-side so it appears in the sidebar immediately
   // and is persisted, rather than existing only once a message is sent
   try {
@@ -9793,7 +9893,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     closeMenus(); hideSlash();
     if ($("projPop").style.display !== "none") closeProjects();
-    else if ($("routinePop").style.display !== "none") closeRoutines();
+    else if (routinesOpen()) closeRoutinesPage();
     else if ($("cmdPalette").style.display !== "none") closeCmd();
     else if ($("renameDlg").style.display !== "none") closeRenameDialog();
     else if ($("actPanel").style.display !== "none") toggleActPanel(false);
@@ -9973,7 +10073,7 @@ let localStatus = {};
 let localFetchedAt = 0;
 let modelListCache = {};   // provider id -> { models, live, error, hint }
 
-async function refreshMeta() { meta = await (await fetch("/api/providers")).json(); }
+async function refreshMeta() { meta = await fetchJSON("/api/providers"); }
 
 /** Local runtime detection, cached briefly client-side (server caches 60s). */
 async function refreshLocals(force) {
@@ -11553,21 +11653,18 @@ function closeProjects() {
   if (active && active.id === "navProjects") setSidebarNav("");
 }
 
-/* ---- routines ---- */
+/* ---- routines page ---- */
 let routineItems = [];
-let routineEditing = "";
+let routineRoots = [];
+let routineSelected = "";
+let routineFilter = "";
+let routineQuery = "";
 let routinePoll = 0;
 
-function scheduleRoutinePoll() {
-  clearTimeout(routinePoll);
-  routinePoll = 0;
-  if (routineEditing || $("routinePop").style.display === "none") return;
-  if (routineItems.some((r) => r.lastStatus === "running")) {
-    routinePoll = setTimeout(() => { renderRoutines(); }, 5000);
-  }
-}
-
 function routineRootNow() { return state.root || ""; }
+function routineShortRoot(p) {
+  return String(p || "").split(/[\\/]/).filter(Boolean).pop() || p || "Project";
+}
 function routineNextText(ts) {
   return ts ? new Date(ts).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", month: "short", day: "numeric" }) : "—";
 }
@@ -11577,46 +11674,123 @@ function routineStatusPill(r) {
   const text = s === "running" ? "Running" : s === "late" ? "Ran late" : s === "error" ? "Failed" : s === "skipped" ? "Skipped" : s ? "Ran" : "Not run";
   return `<span class="pill ${cls}">${text}</span>`;
 }
-async function openRoutines() {
-  setSidebarNav("navRoutines");
-  routineEditing = "";
-  $("routinePop").style.display = "flex";
-  await renderRoutines();
-}
-function closeRoutines() {
-  $("routinePop").style.display = "none";
-  clearTimeout(routinePoll);
+function routinesOpen() { return document.body.classList.contains("routines-view"); }
+function closeRoutinesPage() {
+  if (!routinesOpen()) return;
+  document.body.classList.remove("routines-view");
+  clearInterval(routinePoll);
   routinePoll = 0;
-  const active = document.querySelector(".sb-nav-row.on");
-  if (active && active.id === "navRoutines") setSidebarNav("");
+  setSidebarNav("");
 }
-async function loadRoutines() {
+async function openRoutines() {
+  closeSettings();
+  document.body.classList.add("routines-view");
+  setSidebarNav("navRoutines");
+  routineSelected = "";
+  routineFilter = "";
+  routineQuery = "";
+  const search = $("routineSearch");
+  if (search) search.value = "";
+  await renderRoutinesPage();
+  clearInterval(routinePoll);
+  // The agent can create routines too: keep the page honest while it is open.
+  routinePoll = setInterval(() => { if (routinesOpen()) refreshRoutineList(); }, 8000);
+}
+async function loadRoutineData() {
   const j = await fetchJSON("/api/routines?all=1");
   routineItems = Array.isArray(j.routines) ? j.routines : [];
+  const roots = new Set([...(j.roots || []), ...routineItems.map((r) => r.root), ...projectPaths(), routineRootNow()].filter(Boolean));
+  routineRoots = [...roots];
   return routineItems;
 }
-function routineListHtml() {
-  if (!routineItems.length) {
-    return '<div class="projpop-empty">No routines yet.<br><span style="font-size:11.5px">A routine is a prompt that runs on a cadence in a fresh session.</span></div>';
-  }
-  return routineItems.map((r) => {
-    const rootName = String(r.root || "").split(/[\\/]/).filter(Boolean).pop() || "";
-    return `<div class="routine-row${r.enabled ? "" : " paused"}" data-id="${esc(r.id)}">
-      <button class="rt-main" type="button" data-edit title="Edit routine">
-        <span class="rt-name">${esc(r.title)}</span>
-        <span class="rt-meta">${esc(r.when)} · next ${esc(routineNextText(r.next))}${r.enabled ? "" : " · paused"}${rootName ? " · " + esc(rootName) : ""}${r.lastError ? " · " + esc(String(r.lastError).slice(0, 48)) : ""}</span>
-      </button>
-      ${routineStatusPill(r)}
-      <button class="btn sm" type="button" data-run${r.lastStatus === "running" ? " disabled" : ""}>${r.lastStatus === "running" ? "Running" : "Run"}</button>
-    </div>`;
-  }).join("");
+function populateRoutineProjects() {
+  const sel = $("routineProject");
+  if (!sel) return;
+  const roots = routineRoots.length ? routineRoots : projectPaths();
+  sel.innerHTML = '<option value="">All projects</option>' +
+    roots.map((r) => `<option value="${esc(r)}">${esc(routineShortRoot(r))}</option>`).join("");
+  sel.value = routineFilter;
 }
-function wireRoutineRows(host) {
-  host.querySelectorAll(".routine-row").forEach((row) => {
-    const id = row.dataset.id;
-    row.querySelector("[data-edit]").addEventListener("click", () => { routineEditing = id; renderRoutines(); });
-    row.querySelector("[data-run]").addEventListener("click", () => runRoutineById(id));
+function routineFiltered() {
+  const q = routineQuery.trim().toLowerCase();
+  return routineItems.filter((r) => {
+    if (routineFilter && r.root !== routineFilter) return false;
+    if (!q) return true;
+    return (r.title + " " + r.prompt + " " + r.when).toLowerCase().includes(q);
   });
+}
+function routineCardHtml(r) {
+  const selected = routineSelected === r.id ? " on" : "";
+  const paused = r.enabled ? "" : " paused";
+  const running = r.lastStatus === "running";
+  return `<div class="routine-card${selected}${paused}" data-id="${esc(r.id)}">
+    <button class="rc-main" type="button" data-select title="Open routine">
+      <span class="rc-name">${esc(r.title)}</span>
+      <span class="rc-meta">${esc(r.when)} · next ${esc(routineNextText(r.next))}${routineFilter ? "" : " · " + esc(routineShortRoot(r.root))}${r.lastError ? " · " + esc(String(r.lastError).slice(0, 46)) : ""}</span>
+    </button>
+    ${routineStatusPill(r)}
+    <span class="rc-actions">
+      <button class="tog${r.enabled ? " on" : ""}" type="button" data-toggle aria-pressed="${r.enabled ? "true" : "false"}" title="${r.enabled ? "Pause" : "Resume"}" aria-label="${r.enabled ? "Pause routine" : "Resume routine"}"></button>
+      <button class="btn sm" type="button" data-run${running ? " disabled" : ""}>Run</button>
+    </span>
+  </div>`;
+}
+function wireRoutineCards(host) {
+  host.querySelectorAll(".routine-card").forEach((card) => {
+    const id = card.dataset.id;
+    card.querySelector("[data-select]").addEventListener("click", () => {
+      routineSelected = id;
+      renderRoutineCards();
+      renderRoutineEditorPanel();
+    });
+    card.querySelector("[data-toggle]").addEventListener("click", (e) => { e.stopPropagation(); toggleRoutineById(id); });
+    card.querySelector("[data-run]").addEventListener("click", (e) => { e.stopPropagation(); runRoutineById(id); });
+  });
+}
+function renderRoutineCards() {
+  const host = $("routineList");
+  const items = routineFiltered();
+  if (!items.length) {
+    host.innerHTML = `<div class="rpage-empty"><b>${routineItems.length ? "No routines match" : "No routines yet"}</b>${routineItems.length ? "Try another project or search." : "Create one for a project, or ask Pulse in chat to set one up."}</div>`;
+    return;
+  }
+  if (routineFilter) {
+    host.innerHTML = items.map(routineCardHtml).join("");
+  } else {
+    const groups = new Map();
+    for (const r of items) {
+      const key = r.root || "";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(r);
+    }
+    host.innerHTML = [...groups.entries()].map(([root, list]) =>
+      `<div class="rpage-group"><div class="rpage-group-h"><span>${esc(routineShortRoot(root))}</span><span class="path">${esc(root)}</span></div>` +
+      list.map(routineCardHtml).join("") + "</div>").join("");
+  }
+  wireRoutineCards(host);
+}
+async function refreshRoutineList() {
+  if (!routinesOpen()) return;
+  try { await loadRoutineData(); } catch { return; }
+  renderRoutineCards();
+  if (routineSelected && routineSelected !== "new" && !routineItems.some((r) => r.id === routineSelected)) {
+    routineSelected = "";
+    renderRoutineEditorPanel();
+  }
+}
+async function toggleRoutineById(id) {
+  const r = routineItems.find((x) => x.id === id);
+  if (!r) return;
+  try {
+    const j = await fetchJSON("/api/routines", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: r.enabled ? "disable" : "enable", id, root: r.root || routineRootNow() }),
+    });
+    if (!j.ok) throw new Error(j.error || "could not change it");
+    await refreshRoutineList();
+  } catch (e) {
+    toast("Could not update that routine: " + e.message);
+  }
 }
 async function runRoutineById(id) {
   const r = routineItems.find((x) => x.id === id);
@@ -11628,58 +11802,67 @@ async function runRoutineById(id) {
     if (!j.ok) throw new Error(j.error || "could not start it");
     toast("Routine queued — it appears in Sessions when it starts.");
     setTimeout(() => loadSessions(), 2500);
-    await renderRoutines();
+    await refreshRoutineList();
   } catch (e) {
     toast("Could not run that routine: " + e.message);
   }
 }
 function routineHistoryHtml(r) {
-  const rows = (r.history || []).slice(-5).reverse();
+  const rows = (r.history || []).slice(-6).reverse();
   if (!rows.length) return "";
   return `<div class="routine-hist"><div class="routine-hist-h">Recent runs</div>` +
     rows.map((h) => `<div class="routine-hist-row"><span>${esc(new Date(h.started || 0).toLocaleString())}</span>${routineStatusPill({ lastStatus: h.status })}</div>`).join("") +
     `</div>`;
 }
-function renderRoutineEditor(r) {
-  const host = $("routineList");
-  const isNew = !r;
-  const draft = r || { title: "", prompt: "", when: "daily at 09:00", enabled: true, allowTools: false, root: routineRootNow() };
-  host.innerHTML = `<form class="routine-form" id="routineForm" data-id="${esc(draft.id || "")}" data-root="${esc(draft.root || routineRootNow())}">
-    <label>Name<input id="rtTitle" type="text" value="${esc(draft.title || "")}" placeholder="Morning brief" autocomplete="off"></label>
-    <label>Prompt<textarea id="rtPrompt" placeholder="What should run each time?">${esc(draft.prompt || "")}</textarea></label>
-    <label>Cadence<input id="rtWhen" type="text" value="${esc(draft.when || "daily at 09:00")}" placeholder="weekdays at 08:30" autocomplete="off"></label>
-    <div class="routine-hint">hourly · every 2 hours · daily at 09:00 · weekdays at 08:30</div>
-    <div class="routine-hint">Runs in ${esc(String(draft.root || routineRootNow() || "the current project").split(/[\\/]/).filter(Boolean).pop() || "the current project")}</div>
-    <label class="routine-check"><input id="rtAllow" type="checkbox"${draft.allowTools ? " checked" : ""}> Allow writes and commands</label>
-    <label class="routine-check"><input id="rtEnabled" type="checkbox"${draft.enabled !== false ? " checked" : ""}> Enabled</label>
-    <div class="routine-actions">
-      ${isNew ? "" : '<button class="btn dgr sm" type="button" id="rtDelete">Delete</button>'}
-      <span class="spacer"></span>
-      <button class="btn sm" type="button" id="rtCancel">Cancel</button>
-      <button class="btn pri sm" type="submit">${isNew ? "Create routine" : "Save"}</button>
-    </div>
-    ${routineHistoryHtml(draft)}
-  </form>`;
-  $("rtTitle").focus();
-  $("rtCancel").addEventListener("click", () => { routineEditing = ""; renderRoutines(); });
-  $("routineForm").addEventListener("submit", (e) => { e.preventDefault(); saveRoutine(isNew ? "" : draft.id, draft.root || routineRootNow()); });
-  if (!isNew) {
-    $("rtDelete").addEventListener("click", async () => {
-      if (!confirm("Delete routine \"" + (draft.title || "") + "\"?")) return;
-      try {
-        const j = await fetchJSON("/api/routines", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "remove", id: draft.id, root: draft.root || routineRootNow() }),
-        });
-        if (!j.ok) throw new Error(j.error || "could not delete it");
-        routineEditing = "";
-        toast("Routine deleted");
-        await renderRoutines();
-      } catch (err) { toast("Could not delete: " + err.message); }
-    });
+function renderRoutineEditorPanel() {
+  const host = $("routineEditor");
+  if (!host) return;
+  if (!routineSelected) {
+    host.innerHTML = '<div class="red-empty"><b style="display:block;margin-bottom:4px;font-size:14px;font-weight:500;color:var(--text2)">Select a routine</b>Pick one from the list to edit it, or create a new one for a project.</div>';
+    return;
   }
+  if (routineSelected === "new") return renderRoutineEditor(null);
+  const r = routineItems.find((x) => x.id === routineSelected);
+  if (!r) { routineSelected = ""; return renderRoutineEditorPanel(); }
+  renderRoutineEditor(r);
 }
-async function saveRoutine(id, root) {
+function renderRoutineEditor(r) {
+  const host = $("routineEditor");
+  const isNew = !r;
+  const draft = r || { title: "", prompt: "", when: "daily at 09:00", enabled: true, allowTools: false, root: routineFilter || routineRootNow() };
+  const roots = routineRoots.length ? routineRoots : projectPaths();
+  host.innerHTML = `
+    <div class="red-h">
+      <h2>${isNew ? "New routine" : "Edit routine"}</h2>
+      <button class="icon-btn" id="rtClose" title="Close editor" aria-label="Close editor"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button>
+    </div>
+    <form class="routine-form" id="routineForm" data-id="${esc(draft.id || "")}">
+      <label>Name<input id="rtTitle" type="text" value="${esc(draft.title || "")}" placeholder="Morning brief" autocomplete="off"></label>
+      <label>Prompt<textarea id="rtPrompt" placeholder="What should run each time?">${esc(draft.prompt || "")}</textarea></label>
+      <label>Cadence<input id="rtWhen" type="text" value="${esc(draft.when || "daily at 09:00")}" placeholder="weekdays at 08:30" autocomplete="off"></label>
+      <div class="routine-hint">hourly · every 2 hours · daily at 09:00 · weekdays at 08:30</div>
+      ${isNew
+        ? `<label>Project<select id="rtProject">${roots.map((p) => `<option value="${esc(p)}"${p === draft.root ? " selected" : ""}>${esc(routineShortRoot(p))} — ${esc(p)}</option>`).join("")}</select></label>`
+        : `<div class="routine-hint">Runs in ${esc(routineShortRoot(draft.root))} — ${esc(draft.root)}</div>`}
+      <label class="routine-check"><input id="rtAllow" type="checkbox"${draft.allowTools ? " checked" : ""}> Allow writes and commands</label>
+      <label class="routine-check"><input id="rtEnabled" type="checkbox"${draft.enabled !== false ? " checked" : ""}> Enabled</label>
+      <div class="routine-actions">
+        ${isNew ? "" : '<button class="btn dgr sm" type="button" id="rtDelete">Delete</button>'}
+        <span class="spacer"></span>
+        <button class="btn pri sm" type="submit">${isNew ? "Create routine" : "Save"}</button>
+      </div>
+      ${routineHistoryHtml(draft)}
+    </form>`;
+  $("rtTitle").focus();
+  $("rtClose").addEventListener("click", () => { routineSelected = ""; renderRoutineCards(); renderRoutineEditorPanel(); });
+  $("routineForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const root = isNew ? (($("rtProject") || {}).value || draft.root) : draft.root;
+    saveRoutine(isNew ? "" : draft.id, root, isNew);
+  });
+  if (!isNew) $("rtDelete").addEventListener("click", () => deleteRoutine(draft));
+}
+async function saveRoutine(id, root, isNew) {
   const title = $("rtTitle").value.trim();
   const prompt = $("rtPrompt").value.trim();
   const when = $("rtWhen").value.trim();
@@ -11695,30 +11878,53 @@ async function saveRoutine(id, root) {
       }),
     });
     if (!j.ok) throw new Error(j.error || "could not save it");
-    routineEditing = "";
+    routineSelected = (j.routine && j.routine.id) || id || "";
+    if (isNew) routineFilter = "";
     toast(id ? "Routine saved" : "Routine created");
-    await renderRoutines();
+    await refreshRoutineList();
+    populateRoutineProjects();
+    renderRoutineEditorPanel();
   } catch (e) {
     toast("Could not save: " + e.message);
   }
 }
-async function renderRoutines() {
-  const host = $("routineList");
-  if (routineEditing) {
-    try { await loadRoutines(); } catch { /* keep the last list */ }
-    const r = routineEditing === "new" ? null : routineItems.find((x) => x.id === routineEditing) || null;
-    renderRoutineEditor(r);
+async function deleteRoutine(r) {
+  if (!confirm("Delete routine \"" + (r.title || "") + "\"?")) return;
+  try {
+    const j = await fetchJSON("/api/routines", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "remove", id: r.id, root: r.root || routineRootNow() }),
+    });
+    if (!j.ok) throw new Error(j.error || "could not delete it");
+    routineSelected = "";
+    toast("Routine deleted");
+    await refreshRoutineList();
+    renderRoutineEditorPanel();
+  } catch (e) {
+    toast("Could not delete: " + e.message);
+  }
+}
+async function renderRoutinesPage() {
+  const list = $("routineList");
+  list.innerHTML = '<div class="rpage-empty">Loading…</div>';
+  $("routineEditor").innerHTML = "";
+  try {
+    await loadRoutineData();
+  } catch (e) {
+    list.innerHTML = `<div class="rpage-empty"><b>Could not load routines</b>${esc(e.message || "The server did not answer.")}</div>`;
     return;
   }
-  host.innerHTML = '<div class="projpop-empty">Loading…</div>';
-  try { await loadRoutines(); } catch { host.innerHTML = '<div class="projpop-empty">Could not load routines.</div>'; return; }
-  host.innerHTML = routineListHtml();
-  wireRoutineRows(host);
-  scheduleRoutinePoll();
+  populateRoutineProjects();
+  renderRoutineCards();
+  renderRoutineEditorPanel();
 }
-$("routineClose").addEventListener("click", closeRoutines);
-$("routineNew").addEventListener("click", () => { routineEditing = "new"; renderRoutines(); });
-$("routinePop").addEventListener("click", (e) => { if (e.target === $("routinePop")) closeRoutines(); });
+$("routineNew").addEventListener("click", () => {
+  routineSelected = "new";
+  renderRoutineCards();
+  renderRoutineEditorPanel();
+});
+$("routineSearch").addEventListener("input", (e) => { routineQuery = e.target.value; renderRoutineCards(); });
+$("routineProject").addEventListener("change", (e) => { routineFilter = e.target.value; renderRoutineCards(); });
 async function switchProject(p) {
   const wanted = String(p || "").trim();
   if (!wanted) return;

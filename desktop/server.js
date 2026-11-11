@@ -85,7 +85,7 @@ const subagentControllers = new Map();
 // turn for its session falls back to prose.
 const askTurns = new Map();
 const SUBAGENT_BLOCKED = new Set(["write_file", "edit_file", "multi_edit", "run_command", "download", "fetch_url", "websearch", "task"]);
-const CHAT_TOOLS = ["websearch", "fetch_url", "self_knowledge", "search_knowledge", "task", "ask_user", "question", "skill", "create_skill", "suggest_session", "preview"];
+const CHAT_TOOLS = ["websearch", "fetch_url", "self_knowledge", "search_knowledge", "task", "ask_user", "question", "skill", "create_skill", "suggest_session", "schedule", "preview"];
 /** Chat's own tools plus whatever MCP servers are connected right now. */
 function chatToolList() {
   return CHAT_TOOLS.concat(mcpManager.toolList().map((t) => t.name));

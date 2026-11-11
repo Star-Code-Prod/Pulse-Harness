@@ -558,11 +558,17 @@ ok("tool arg previews summarize arrays and objects",
 ok("process rows carry no shadow",
   !/\.pitem\.thought \.prow\{[^}]*box-shadow/.test(html.replace(/\s+/g, " ")) &&
   !/\.proc::after\{/.test(html.replace(/\s+/g, "")));
-ok("Routines has a sidebar row, popover, settings section and command",
-  html.includes('id="navRoutines"') && html.includes('id="routinePop"') &&
+ok("Routines is a page with sidebar, settings and command entries",
+  html.includes('id="navRoutines"') && html.includes('id="routinesPage"') &&
+  html.includes('id="routineEditor"') && html.includes('id="routineProject"') &&
   js.includes("function openRoutines(") && js.includes('"/api/routines?all=1"') &&
   html.includes('data-s="routines"') && js.includes("function settingsRoutines(") &&
   js.includes('label: "Open Routines"'));
+ok("the routines page is project-scoped and grouped",
+  js.includes("routineFilter") && js.includes("routineShortRoot(r.root)") &&
+  js.includes("function renderRoutineCards(") && js.includes("rpage-group"));
+ok("the routines page is its own view",
+  js.includes("routines-view") && html.includes("body.routines-view #routinesPage{display:flex}"));
 ok("routine runs are tagged with a clock icon",
   js.includes(": s.routine") && html.includes(".routine-badge"));
 ok("the routine editor covers cadence, writes and history",
@@ -596,6 +602,9 @@ ok("client requests carry a timeout",
   js.includes("clearTimeout(timer)"));
 ok("a server-down abort does not reject unhandled",
   /fetch\("\/api\/abort"[\s\S]{0,240}?\.catch\(/.test(js));
+ok("client errors are surfaced instead of swallowed",
+  js.includes('addEventListener("unhandledrejection"') && js.includes("function reportClientError(") &&
+  js.includes("function showBootError(") && js.includes("serverDown"));
 ok("a pick per question sends; multiSelect still uses Submit",
   js.includes("const anyMulti = qs.some((q) => q.multiSelect)") &&
   js.includes("(qs.length === 1 && !multi) || (allSingle && ready)") &&
